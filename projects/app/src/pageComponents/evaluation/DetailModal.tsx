@@ -25,7 +25,7 @@ import {
   getEvalItemsList,
   retryEvalItem,
   updateEvalItem
-} from '@/web/core/evaluation/evaluation';
+} from '@/web/core/evaluation/task';
 import { usePagination } from '@fastgpt/web/hooks/usePagination';
 import { downloadFetch } from '@/web/common/system/utils';
 import PopoverConfirm from '@fastgpt/web/components/common/MyPopover/PopoverConfirm';
@@ -89,10 +89,7 @@ const EvaluationDetailModal = ({
   const [pollingInterval, setPollingInterval] = useState(10000);
 
   const { llmModelList } = useSystemStore();
-  const modelData = useMemo(
-    () => getModelFromList(llmModelList, evalDetail.evalModel),
-    [evalDetail.evalModel, llmModelList]
-  );
+  const modelData = useMemo(() => getModelFromList(llmModelList, 'gpt-3.5-turbo'), [llmModelList]);
 
   const {
     data: evalItemsList,
@@ -221,9 +218,9 @@ const EvaluationDetailModal = ({
                 {t('dashboard_evaluation:Evaluation_app')}
               </Box>
               <Flex gap={1.5}>
-                <Avatar src={evalDetail?.appAvatar} w={5} borderRadius={'4px'} />
+                <Avatar src={evalDetail?.executorAvatar} w={5} borderRadius={'4px'} />
                 <Box color={'myGray.900'} fontWeight={'medium'}>
-                  {evalDetail?.appName}
+                  {evalDetail?.executorName}
                 </Box>
               </Flex>
             </Box>
@@ -251,7 +248,9 @@ const EvaluationDetailModal = ({
                 {t('dashboard_evaluation:Overall_score')}
               </Box>
               <Box color={'myGray.900'} fontWeight={'medium'}>
-                {typeof evalDetail.score === 'number' ? (evalDetail.score * 100).toFixed(2) : '-'}
+                {typeof evalDetail.avgScore === 'number'
+                  ? (evalDetail.avgScore * 100).toFixed(2)
+                  : '-'}
               </Box>
             </Box>
           </Flex>
@@ -427,7 +426,7 @@ const EvaluationDetailModal = ({
                                 {index < 9 ? `0${index + 1}` : index + 1}
                               </Box>
                               <Box noOfLines={3} textOverflow="ellipsis" overflow="hidden">
-                                {item.question}
+                                {item.dataItem.question}
                               </Box>
                             </Flex>
                           </Box>
@@ -471,7 +470,7 @@ const EvaluationDetailModal = ({
                       {evalItem?.errorMessage}
                     </Box>
                   )}
-                  {Object.keys(evalItem?.globalVariables || {}).length > 0 && (
+                  {Object.keys(evalItem?.dataItem.globalVariables || {}).length > 0 && (
                     <Box borderBottom={'1px solid'} borderColor={'myGray.200'} mb={5}>
                       <Accordion allowToggle defaultIndex={[0]}>
                         <AccordionItem border={'none'}>
@@ -487,7 +486,7 @@ const EvaluationDetailModal = ({
                             <AccordionIcon />
                           </AccordionButton>
                           <AccordionPanel px={0} py={3}>
-                            {Object.entries(evalItem?.globalVariables || {}).map(
+                            {Object.entries(evalItem?.dataItem.globalVariables || {}).map(
                               ([key, value], index, arr) => (
                                 <Flex
                                   key={key}
@@ -512,12 +511,12 @@ const EvaluationDetailModal = ({
                                       <Input
                                         {...register(`variables.${key}`)}
                                         bg={'myGray.25'}
-                                        defaultValue={value}
+                                        defaultValue={String(value)}
                                         border={'none'}
                                       />
                                     ) : (
                                       <Box color={'myGray.900'} px={3} py={2}>
-                                        {value}
+                                        {String(value)}
                                       </Box>
                                     )}
                                   </Box>
@@ -535,11 +534,11 @@ const EvaluationDetailModal = ({
                       <Textarea
                         {...register('question')}
                         bg={'myGray.25'}
-                        defaultValue={evalItem?.question}
+                        defaultValue={evalItem?.dataItem.question}
                       />
                     ) : (
                       <Box color={'myGray.900'} mt={3}>
-                        {evalItem?.question}
+                        {evalItem?.dataItem.question}
                       </Box>
                     )}
                   </Box>
@@ -550,11 +549,11 @@ const EvaluationDetailModal = ({
                       <Textarea
                         {...register('expectedResponse')}
                         bg={'myGray.25'}
-                        defaultValue={evalItem?.expectedResponse}
+                        defaultValue={evalItem?.dataItem.expectedResponse}
                       />
                     ) : (
                       <Box color={'myGray.900'} mt={3}>
-                        {evalItem?.expectedResponse}
+                        {evalItem?.dataItem.expectedResponse}
                       </Box>
                     )}
                   </Box>

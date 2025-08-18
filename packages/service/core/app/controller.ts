@@ -7,8 +7,8 @@ import type { StoreNodeItemType } from '@fastgpt/global/core/workflow/type/node'
 import { encryptSecretValue, storeSecretValue } from '../../common/secret/utils';
 import { SystemToolInputTypeEnum } from '@fastgpt/global/core/app/systemTool/constants';
 import { type ClientSession } from '../../common/mongo';
-import { MongoEvaluation } from '../evaluation/evalSchema';
-import { removeEvaluationJob } from '../evaluation/mq';
+import { MongoEvaluation } from '../evaluation/task/schema';
+import { evaluationTaskQueue, evaluationItemQueue } from '../evaluation/mq';
 import { deleteChatFiles } from '../chat/controller';
 import { MongoChatItem } from '../chat/chatItemSchema';
 import { MongoChat } from '../chat/chatSchema';
@@ -153,7 +153,25 @@ export const onDelOneApp = async ({
     },
     '_id'
   ).lean();
-  await Promise.all(evalJobs.map((evalJob) => removeEvaluationJob(evalJob._id)));
+  // 清理评估相关的队列任务
+  for (const evalJob of evalJobs) {
+    try {
+      // 取消待处理的任务
+      const waitingJobs = await evaluationTaskQueue.getJobs(['waiting', 'delayed']);
+      const activeJobs = await evaluationTaskQueue.getJobs(['active']);
+      const itemWaitingJobs = await evaluationItemQueue.getJobs(['waiting', 'delayed']);
+      const itemActiveJobs = await evaluationItemQueue.getJobs(['active']);
+
+      const allJobs = [...waitingJobs, ...activeJobs, ...itemWaitingJobs, ...itemActiveJobs];
+      for (const job of allJobs) {
+        if (job.data.evalId === String(evalJob._id)) {
+          await job.remove();
+        }
+      }
+    } catch (error) {
+      // Continue if queue cleanup fails
+    }
+  }
 
   const del = async (session: ClientSession) => {
     for await (const app of apps) {
