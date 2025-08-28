@@ -3,7 +3,6 @@ import { jsonRes } from '@fastgpt/service/common/response';
 import { EvaluationDatasetService } from '@fastgpt/service/core/evaluation/dataset';
 import { getUploadModel } from '@fastgpt/service/common/file/multer';
 import { addLog } from '@fastgpt/service/common/system/log';
-import type { ImportDatasetResponse } from '@fastgpt/global/core/evaluation/api';
 import fs from 'fs';
 
 export const config = {

@@ -122,7 +122,8 @@ const DatasetModal: React.FC = () => {
   const { runAsync: saveDataset, loading: isSaving } = useRequest2(
     async (data: CreateDatasetParams) => {
       if (isEdit && editingItem && 'dataFormat' in editingItem) {
-        return await updateDataset(editingItem._id, data);
+        await updateDataset({ datasetId: editingItem._id, ...data });
+        return { ...editingItem, ...data };
       } else {
         return await createDataset(data);
       }

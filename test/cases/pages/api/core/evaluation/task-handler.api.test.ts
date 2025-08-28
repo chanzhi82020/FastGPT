@@ -133,7 +133,7 @@ describe('Task API Handler Tests (Direct Function Calls)', () => {
       expect(addLog.info).toHaveBeenCalledWith(
         '[Evaluation] Evaluation task created successfully',
         expect.objectContaining({
-          evaluationId: mockEvaluation._id,
+          evalId: mockEvaluation._id,
           name: mockEvaluation.name
         })
       );
@@ -298,10 +298,10 @@ describe('Task API Handler Tests (Direct Function Calls)', () => {
 
   describe('Get Evaluation Detail Handler', () => {
     test('应该成功获取评估任务详情', async () => {
-      const evaluationId = new Types.ObjectId().toString();
+      const evalId = new Types.ObjectId().toString();
       const mockReq = {
         method: 'GET',
-        query: { id: evaluationId }
+        query: { evalId: evalId }
       } as any;
 
       (EvaluationTaskService.getEvaluation as any).mockResolvedValue(mockEvaluation);
@@ -309,7 +309,7 @@ describe('Task API Handler Tests (Direct Function Calls)', () => {
       const result = await detailHandler(mockReq);
 
       expect(EvaluationTaskService.getEvaluation).toHaveBeenCalledWith(
-        evaluationId,
+        evalId,
         expect.objectContaining({
           req: mockReq,
           authToken: true
@@ -330,11 +330,11 @@ describe('Task API Handler Tests (Direct Function Calls)', () => {
 
   describe('Update Evaluation Handler', () => {
     test('应该成功更新评估任务', async () => {
-      const evaluationId = new Types.ObjectId().toString();
+      const evalId = new Types.ObjectId().toString();
       const mockReq = {
         method: 'PUT',
-        query: { id: evaluationId },
         body: {
+          evalId: evalId,
           name: 'Updated Evaluation',
           description: 'Updated Description'
         }
@@ -345,7 +345,7 @@ describe('Task API Handler Tests (Direct Function Calls)', () => {
       const result = await updateHandler(mockReq);
 
       expect(EvaluationTaskService.updateEvaluation).toHaveBeenCalledWith(
-        evaluationId,
+        evalId,
         expect.objectContaining({
           name: 'Updated Evaluation',
           description: 'Updated Description'
@@ -361,10 +361,10 @@ describe('Task API Handler Tests (Direct Function Calls)', () => {
 
   describe('Delete Evaluation Handler', () => {
     test('应该成功删除评估任务', async () => {
-      const evaluationId = new Types.ObjectId().toString();
+      const evalId = new Types.ObjectId().toString();
       const mockReq = {
         method: 'DELETE',
-        query: { id: evaluationId }
+        query: { evalId: evalId }
       } as any;
 
       (EvaluationTaskService.deleteEvaluation as any).mockResolvedValue(undefined);
@@ -372,7 +372,7 @@ describe('Task API Handler Tests (Direct Function Calls)', () => {
       const result = await deleteHandler(mockReq);
 
       expect(EvaluationTaskService.deleteEvaluation).toHaveBeenCalledWith(
-        evaluationId,
+        evalId,
         expect.objectContaining({
           req: mockReq,
           authToken: true
@@ -384,10 +384,10 @@ describe('Task API Handler Tests (Direct Function Calls)', () => {
 
   describe('Start Evaluation Handler', () => {
     test('应该成功启动评估任务', async () => {
-      const evaluationId = new Types.ObjectId().toString();
+      const evalId = new Types.ObjectId().toString();
       const mockReq = {
         method: 'POST',
-        body: { evaluationId }
+        body: { evalId }
       } as any;
 
       (EvaluationTaskService.startEvaluation as any).mockResolvedValue(undefined);
@@ -395,7 +395,7 @@ describe('Task API Handler Tests (Direct Function Calls)', () => {
       const result = await startHandler(mockReq);
 
       expect(EvaluationTaskService.startEvaluation).toHaveBeenCalledWith(
-        evaluationId,
+        evalId,
         expect.objectContaining({
           req: mockReq,
           authToken: true
@@ -416,10 +416,10 @@ describe('Task API Handler Tests (Direct Function Calls)', () => {
 
   describe('Stop Evaluation Handler', () => {
     test('应该成功停止评估任务', async () => {
-      const evaluationId = new Types.ObjectId().toString();
+      const evalId = new Types.ObjectId().toString();
       const mockReq = {
         method: 'POST',
-        body: { evaluationId }
+        body: { evalId }
       } as any;
 
       (EvaluationTaskService.stopEvaluation as any).mockResolvedValue(undefined);
@@ -427,7 +427,7 @@ describe('Task API Handler Tests (Direct Function Calls)', () => {
       const result = await stopHandler(mockReq);
 
       expect(EvaluationTaskService.stopEvaluation).toHaveBeenCalledWith(
-        evaluationId,
+        evalId,
         expect.objectContaining({
           req: mockReq,
           authToken: true
@@ -439,10 +439,10 @@ describe('Task API Handler Tests (Direct Function Calls)', () => {
 
   describe('Get Evaluation Stats Handler', () => {
     test('应该成功获取评估任务统计信息', async () => {
-      const evaluationId = new Types.ObjectId().toString();
+      const evalId = new Types.ObjectId().toString();
       const mockReq = {
         method: 'GET',
-        query: { evaluationId }
+        query: { evalId }
       } as any;
 
       const mockStats = {
@@ -459,7 +459,7 @@ describe('Task API Handler Tests (Direct Function Calls)', () => {
       const result = await statsHandler(mockReq);
 
       expect(EvaluationTaskService.getEvaluationStats).toHaveBeenCalledWith(
-        evaluationId,
+        evalId,
         expect.objectContaining({
           req: mockReq,
           authToken: true

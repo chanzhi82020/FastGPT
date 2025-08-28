@@ -15,37 +15,48 @@ import type {
   EvaluationItemDisplayType
 } from './type';
 
-// ===== Common Utility Types =====
+// ===== Common Types =====
 export type MessageResponse = { message: string };
-export type IdQuery = { id: string };
 
-// ===== Evaluation API Types =====
+export type EvalIdQuery = { evalId: string };
+export type EvalItemIdQuery = { evalItemId: string };
+export type MetricIdQuery = { metricId: string };
+export type DatasetIdQuery = { datasetId: string };
 
+// ===== Evaluation Task API =====
+
+// Create Evaluation
 export type CreateEvaluationRequest = CreateEvaluationParams;
 export type CreateEvaluationResponse = EvaluationSchemaType;
 
-export type UpdateEvaluationRequest = Partial<CreateEvaluationParams>;
+// Update Evaluation
+export type UpdateEvaluationRequest = EvalIdQuery & Partial<CreateEvaluationParams>;
 export type UpdateEvaluationResponse = MessageResponse;
 
+// Get Evaluation Detail
+export type EvaluationDetailRequest = EvalIdQuery;
 export type EvaluationDetailResponse = EvaluationSchemaType;
 
+// Delete Evaluation
+export type DeleteEvaluationRequest = EvalIdQuery;
 export type DeleteEvaluationResponse = MessageResponse;
 
+// List Evaluations
 export type ListEvaluationsRequest = PaginationProps<{
   searchKey?: string;
 }>;
 export type ListEvaluationsResponse = PaginationResponse<EvaluationDisplayType>;
 
-export type StartEvaluationRequest = {
-  evaluationId: string;
-};
+// Start Evaluation
+export type StartEvaluationRequest = EvalIdQuery;
 export type StartEvaluationResponse = MessageResponse;
 
-export type StopEvaluationRequest = {
-  evaluationId: string;
-};
+// Stop Evaluation
+export type StopEvaluationRequest = EvalIdQuery;
 export type StopEvaluationResponse = MessageResponse;
 
+// Get Evaluation Stats
+export type StatsEvaluationRequest = EvalIdQuery;
 export type EvaluationStatsResponse = {
   total: number;
   completed: number;
@@ -55,21 +66,26 @@ export type EvaluationStatsResponse = {
   avgScore?: number;
 };
 
-// ===== Evaluation Item API Types =====
+// Export Evaluation Items
+export type ExportEvaluationItemsRequest = EvalIdQuery & {
+  format?: string;
+};
 
-export type ListEvaluationItemsRequest = PaginationProps<{
-  evalId: string;
-}>;
+// Retry Failed Evaluation Items
+export type RetryFailedEvaluationItemsRequest = EvalIdQuery;
+export type RetryFailedItemsResponse = {
+  message: string;
+  retryCount: number;
+};
+
+// ===== Evaluation Item API =====
+
+// List Evaluation Items
+export type ListEvaluationItemsRequest = PaginationProps<EvalIdQuery>;
 export type ListEvaluationItemsResponse = PaginationResponse<EvaluationItemDisplayType>;
 
-export type UpdateEvaluationItemRequest = {
-  evalItemId: string;
-  userInput?: string;
-  expectedOutput?: string;
-  variables?: Record<string, any>;
-};
-export type UpdateEvaluationItemResponse = MessageResponse;
-
+// Get Evaluation Item Detail
+export type EvaluationItemDetailRequest = EvalItemIdQuery;
 export type EvaluationItemDetailResponse = {
   item: EvaluationItemSchemaType;
   dataItem: any;
@@ -78,85 +94,72 @@ export type EvaluationItemDetailResponse = {
   score?: number;
 };
 
-export type RetryEvaluationItemRequest = {
-  evalItemId: string;
+// Update Evaluation Item
+export type UpdateEvaluationItemRequest = EvalItemIdQuery & {
+  userInput?: string;
+  expectedOutput?: string;
+  variables?: Record<string, any>;
 };
+export type UpdateEvaluationItemResponse = MessageResponse;
+
+// Retry Evaluation Item
+export type RetryEvaluationItemRequest = EvalItemIdQuery;
 export type RetryEvaluationItemResponse = MessageResponse;
 
+// Delete Evaluation Item
+export type DeleteEvaluationItemRequest = EvalItemIdQuery;
 export type DeleteEvaluationItemResponse = MessageResponse;
 
-// ===== Metric API Types =====
+// ===== Evaluation Metric API =====
 
+// Create Metric
 export type CreateMetricRequest = CreateMetricParams;
 export type CreateMetricResponse = EvaluationMetricSchemaType;
 
-export type UpdateMetricRequest = Partial<CreateMetricParams>;
-export type UpdateMetricResponse = MessageResponse;
-
+// Get Metric Detail
+export type MetricDetailRequest = MetricIdQuery;
 export type MetricDetailResponse = EvaluationMetricSchemaType;
 
+// Update Metric
+export type UpdateMetricRequest = MetricIdQuery & Partial<CreateMetricParams>;
+export type UpdateMetricResponse = MessageResponse;
+
+// Delete Metric
+export type DeleteMetricRequest = MetricIdQuery;
 export type DeleteMetricResponse = MessageResponse;
 
+// List Metrics
 export type ListMetricsRequest = PaginationProps<{
   searchKey?: string;
 }>;
 export type ListMetricsResponse = PaginationResponse<EvaluationMetricSchemaType>;
 
-export type TestMetricRequest = {
-  metricId: string;
+// Test Metric
+export type TestMetricRequest = MetricIdQuery & {
   testCase: EvalCase;
 };
 export type TestMetricResponse = MetricResult;
 
-// ===== Dataset API Types =====
+// ===== Evaluation Dataset API =====
 
+// Create Dataset
 export type CreateDatasetRequest = CreateDatasetParams;
 export type CreateDatasetResponse = EvaluationDatasetSchemaType;
 
-export type UpdateDatasetRequest = UpdateDatasetParams;
-export type UpdateDatasetResponse = MessageResponse;
-
+// Get Dataset Detail
+export type DatasetDetailRequest = DatasetIdQuery;
 export type DatasetDetailResponse = EvaluationDatasetSchemaType;
 
+// Update Dataset
+export type UpdateDatasetRequest = DatasetIdQuery & Partial<UpdateDatasetParams>;
+export type UpdateDatasetResponse = MessageResponse;
+
+// Delete Dataset
+export type DeleteDatasetRequest = DatasetIdQuery;
 export type DeleteDatasetResponse = MessageResponse;
 
+// List Datasets
 export type ListDatasetsRequest = PaginationProps<{
   searchKey?: string;
 }>;
 export type ListDatasetsResponse = PaginationResponse<EvaluationDatasetSchemaType>;
-
-export type ImportDatasetResponse = ImportResult;
-
-// ===== Query Types =====
-
-export type EvaluationDetailQuery = IdQuery;
-export type UpdateEvaluationQuery = IdQuery;
-export type DeleteEvaluationQuery = IdQuery;
-export type MetricDetailQuery = IdQuery;
-export type MetricUpdateQuery = IdQuery;
-export type MetricDeleteQuery = IdQuery;
-export type DatasetDetailQuery = IdQuery;
-export type DatasetUpdateQuery = IdQuery;
-export type DatasetDeleteQuery = IdQuery;
-export type EvaluationItemDetailQuery = IdQuery;
-
-export type EvaluationStatsQuery = {
-  evaluationId: string;
-};
-
-export type DeleteEvaluationItemQuery = {
-  evalItemId: string;
-};
-
-export type ExportEvaluationItemsQuery = {
-  evaluationId: string;
-  format?: string;
-};
-export type RetryFailedItemsBody = {
-  evaluationId: string;
-};
-
-export type RetryFailedItemsResponse = {
-  message: string;
-  retryCount: number;
-};

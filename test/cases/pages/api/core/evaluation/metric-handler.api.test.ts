@@ -256,7 +256,7 @@ describe('Metric API Handler Tests (Direct Function Calls)', () => {
     test('应该成功获取指标详情', async () => {
       const metricId = new Types.ObjectId().toString();
       const mockReq = {
-        query: { id: metricId }
+        query: { metricId: metricId }
       } as any;
 
       (EvaluationMetricService.getMetric as any).mockResolvedValue(mockMetric);
@@ -286,8 +286,8 @@ describe('Metric API Handler Tests (Direct Function Calls)', () => {
     test('应该成功更新指标', async () => {
       const metricId = new Types.ObjectId().toString();
       const mockReq = {
-        query: { id: metricId },
         body: {
+          metricId: metricId,
           name: 'Updated Metric',
           description: 'Updated Description',
           config: {
@@ -321,7 +321,7 @@ describe('Metric API Handler Tests (Direct Function Calls)', () => {
     test('应该成功删除指标', async () => {
       const metricId = new Types.ObjectId().toString();
       const mockReq = {
-        query: { id: metricId }
+        query: { metricId: metricId }
       } as any;
 
       (EvaluationMetricService.deleteMetric as any).mockResolvedValue(undefined);

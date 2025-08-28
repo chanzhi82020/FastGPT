@@ -2,34 +2,34 @@ import type { ApiRequestProps } from '@fastgpt/service/type/next';
 import { NextAPI } from '@/service/middleware/entry';
 import { EvaluationTaskService } from '@fastgpt/service/core/evaluation/task';
 import type {
-  DeleteEvaluationQuery,
+  DeleteEvaluationRequest,
   DeleteEvaluationResponse
 } from '@fastgpt/global/core/evaluation/api';
 import { addLog } from '@fastgpt/service/common/system/log';
 
 async function handler(
-  req: ApiRequestProps<{}, DeleteEvaluationQuery>
+  req: ApiRequestProps<{}, DeleteEvaluationRequest>
 ): Promise<DeleteEvaluationResponse> {
   try {
-    const { id } = req.query;
+    const { evalId } = req.query;
 
-    if (!id) {
+    if (!evalId) {
       return Promise.reject('Evaluation ID is required');
     }
 
-    await EvaluationTaskService.deleteEvaluation(id, {
+    await EvaluationTaskService.deleteEvaluation(evalId, {
       req,
       authToken: true
     });
 
     addLog.info('[Evaluation] Evaluation task deleted successfully', {
-      evaluationId: id
+      evalId: evalId
     });
 
     return { message: 'Evaluation deleted successfully' };
   } catch (error) {
     addLog.error('[Evaluation] Failed to delete evaluation task', {
-      evaluationId: req.query.id,
+      evalId: req.query.evalId,
       error
     });
     return Promise.reject(error);

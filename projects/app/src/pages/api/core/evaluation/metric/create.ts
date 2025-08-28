@@ -6,14 +6,19 @@ import type {
   CreateMetricResponse
 } from '@fastgpt/global/core/evaluation/api';
 import { addLog } from '@fastgpt/service/common/system/log';
+import { validateEvaluationParams } from '@fastgpt/global/core/evaluation/utils';
 
 async function handler(req: ApiRequestProps<CreateMetricRequest>): Promise<CreateMetricResponse> {
   try {
     const { name, description, type, config, dependencies } = req.body;
 
-    // Validate required fields
-    if (!name?.trim()) {
-      return Promise.reject('Metric name is required');
+    // Validate name and description
+    const paramValidation = validateEvaluationParams(
+      { name, description },
+      { namePrefix: 'Metric' }
+    );
+    if (!paramValidation.success) {
+      return Promise.reject(paramValidation.message);
     }
 
     if (!type) {

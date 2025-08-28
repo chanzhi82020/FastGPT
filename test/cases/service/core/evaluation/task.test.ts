@@ -419,7 +419,7 @@ describe('EvaluationTaskService', () => {
           target,
           evaluator: evaluators[0],
           status: EvaluationStatusEnum.completed,
-          evaluator_output: {
+          evaluatorOutput: {
             metricId,
             metricName: 'Test Metric',
             score: 85
@@ -431,7 +431,7 @@ describe('EvaluationTaskService', () => {
           target,
           evaluator: evaluators[0],
           status: EvaluationStatusEnum.completed,
-          evaluator_output: {
+          evaluatorOutput: {
             metricId,
             metricName: 'Test Metric',
             score: 95
@@ -580,12 +580,12 @@ describe('EvaluationTaskService', () => {
 
         const updates = {
           status: EvaluationStatusEnum.completed,
-          evaluator_output: {
+          evaluatorOutput: {
             metricId: metricId,
             metricName: 'Test Metric',
             score: 88
           },
-          target_output: {
+          targetOutput: {
             actualOutput: 'Updated response',
             responseTime: 1000
           }
@@ -595,8 +595,8 @@ describe('EvaluationTaskService', () => {
 
         const updatedItem = await EvaluationTaskService.getEvaluationItem(itemId, auth);
         expect(updatedItem.status).toBe(updates.status);
-        expect(updatedItem.evaluator_output?.score).toBe(88);
-        expect(updatedItem.target_output?.actualOutput).toBe('Updated response');
+        expect(updatedItem.evaluatorOutput?.score).toBe(88);
+        expect(updatedItem.targetOutput?.actualOutput).toBe('Updated response');
       });
     });
 
@@ -716,11 +716,11 @@ describe('EvaluationTaskService', () => {
           target,
           evaluator: evaluators[0],
           status: EvaluationStatusEnum.completed,
-          target_output: {
+          targetOutput: {
             actualOutput: 'Test response',
             responseTime: 1000
           },
-          evaluator_output: {
+          evaluatorOutput: {
             metricId,
             metricName: 'Test Metric',
             score: 92,
@@ -764,11 +764,11 @@ describe('EvaluationTaskService', () => {
           target,
           evaluator: evaluators[0],
           status: EvaluationStatusEnum.completed,
-          target_output: {
+          targetOutput: {
             actualOutput: 'JavaScript is a programming language',
             responseTime: 1000
           },
-          evaluator_output: {
+          evaluatorOutput: {
             metricId,
             metricName: 'Test Metric',
             score: 85
@@ -780,11 +780,11 @@ describe('EvaluationTaskService', () => {
           target,
           evaluator: evaluators[0],
           status: EvaluationStatusEnum.completed,
-          target_output: {
+          targetOutput: {
             actualOutput: 'Python is also a programming language',
             responseTime: 1000
           },
-          evaluator_output: {
+          evaluatorOutput: {
             metricId,
             metricName: 'Test Metric',
             score: 95
@@ -796,7 +796,7 @@ describe('EvaluationTaskService', () => {
           target,
           evaluator: evaluators[0],
           status: EvaluationStatusEnum.completed,
-          evaluator_output: {
+          evaluatorOutput: {
             metricId,
             metricName: 'Test Metric',
             score: 45
@@ -830,7 +830,7 @@ describe('EvaluationTaskService', () => {
       });
 
       expect(result.items).toHaveLength(1);
-      expect(result.items[0].evaluator_output?.score).toBe(85);
+      expect(result.items[0].evaluatorOutput?.score).toBe(85);
     });
 
     test('应该按关键词搜索', async () => {
@@ -873,11 +873,11 @@ describe('EvaluationTaskService', () => {
         target,
         evaluator: evaluators[0],
         status: EvaluationStatusEnum.completed,
-        target_output: {
+        targetOutput: {
           actualOutput: 'Test response',
           responseTime: 1000
         },
-        evaluator_output: {
+        evaluatorOutput: {
           metricId,
           metricName: 'Test Metric',
           score: 85
@@ -919,11 +919,11 @@ describe('EvaluationTaskService', () => {
         target,
         evaluator: evaluators[0],
         status: EvaluationStatusEnum.completed,
-        target_output: {
+        targetOutput: {
           actualOutput: 'JavaScript response',
           responseTime: 1000
         },
-        evaluator_output: {
+        evaluatorOutput: {
           metricId,
           metricName: 'Test Metric',
           score: 85
@@ -1001,7 +1001,7 @@ describe('EvaluationTaskService', () => {
           target,
           evaluator: evaluators[0],
           status: EvaluationStatusEnum.completed,
-          evaluator_output: {
+          evaluatorOutput: {
             metricId,
             metricName: 'Test Metric',
             score: 90
@@ -1030,7 +1030,7 @@ describe('EvaluationTaskService', () => {
         'dataItem.userInput': 'Success'
       });
       expect(successItem?.status).toBe(EvaluationStatusEnum.completed);
-      expect(successItem?.evaluator_output?.score).toBe(90);
+      expect(successItem?.evaluatorOutput?.score).toBe(90);
 
       expect(addLog.info).toHaveBeenCalledWith(
         expect.stringContaining(`Batch retry failed items: ${testEvaluationId}, affected count: 2`)
@@ -1066,7 +1066,7 @@ describe('EvaluationTaskService', () => {
           target,
           evaluator: evaluators[0],
           status: EvaluationStatusEnum.completed,
-          evaluator_output: {
+          evaluatorOutput: {
             metricId,
             metricName: 'Test Metric',
             score: 85

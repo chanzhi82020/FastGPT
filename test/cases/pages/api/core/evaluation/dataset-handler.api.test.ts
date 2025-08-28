@@ -239,7 +239,7 @@ describe('Dataset API Handler Tests (Direct Function Calls)', () => {
     test('应该成功获取数据集详情', async () => {
       const datasetId = new Types.ObjectId().toString();
       const mockReq = {
-        query: { id: datasetId }
+        query: { datasetId: datasetId }
       } as any;
 
       (EvaluationDatasetService.getDataset as any).mockResolvedValue(mockDataset);
@@ -269,8 +269,8 @@ describe('Dataset API Handler Tests (Direct Function Calls)', () => {
     test('应该成功更新数据集', async () => {
       const datasetId = new Types.ObjectId().toString();
       const mockReq = {
-        query: { id: datasetId },
         body: {
+          datasetId: datasetId,
           name: 'Updated Dataset',
           description: 'Updated Description'
         }
@@ -299,7 +299,7 @@ describe('Dataset API Handler Tests (Direct Function Calls)', () => {
     test('应该成功删除数据集', async () => {
       const datasetId = new Types.ObjectId().toString();
       const mockReq = {
-        query: { id: datasetId }
+        query: { datasetId: datasetId }
       } as any;
 
       (EvaluationDatasetService.deleteDataset as any).mockResolvedValue(undefined);

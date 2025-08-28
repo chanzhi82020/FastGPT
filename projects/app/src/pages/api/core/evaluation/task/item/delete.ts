@@ -2,19 +2,15 @@ import type { ApiRequestProps } from '@fastgpt/service/type/next';
 import { NextAPI } from '@/service/middleware/entry';
 import { EvaluationTaskService } from '@fastgpt/service/core/evaluation/task';
 import type {
-  DeleteEvaluationItemQuery,
+  DeleteEvaluationItemRequest,
   DeleteEvaluationItemResponse
 } from '@fastgpt/global/core/evaluation/api';
 import { addLog } from '@fastgpt/service/common/system/log';
 
 async function handler(
-  req: ApiRequestProps<{}, DeleteEvaluationItemQuery>
+  req: ApiRequestProps<{}, DeleteEvaluationItemRequest>
 ): Promise<DeleteEvaluationItemResponse> {
   try {
-    if (req.method !== 'DELETE') {
-      return Promise.reject('Method not allowed');
-    }
-
     const { evalItemId } = req.query;
 
     if (!evalItemId) {

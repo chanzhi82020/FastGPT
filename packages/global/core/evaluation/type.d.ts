@@ -72,6 +72,13 @@ export interface EvaluatorSchema {
   runtimeConfig: RuntimeConfig; // Runtime configuration including LLM model
 }
 
+// Statistics information for evaluation task
+export interface EvaluationStatistics {
+  totalItems: number;
+  completedItems: number;
+  errorItems: number;
+}
+
 // Improved evaluation task types
 export type EvaluationSchemaType = {
   _id: string;
@@ -88,6 +95,7 @@ export type EvaluationSchemaType = {
   finishTime?: Date;
   avgScore?: number;
   errorMessage?: string;
+  statistics?: EvaluationStatistics;
 };
 
 // Evaluation item types (atomic: one dataItem + one target + one evaluator)
@@ -99,8 +107,8 @@ export type EvaluationItemSchemaType = {
   target: EvalTarget;
   evaluator: EvaluatorSchema; // Single evaluator configuration
   // Execution results
-  target_output?: TargetOutput; // Actual output from target
-  evaluator_output?: MetricResult; // Result from single evaluator
+  targetOutput?: TargetOutput; // Actual output from target
+  evaluatorOutput?: MetricResult; // Result from single evaluator
   status: EvaluationStatusEnum;
   retry: number;
   finishTime?: Date;
@@ -113,10 +121,9 @@ export interface MetricResult {
   metricName: string;
   score: number;
   details?: Record<string, any>;
-  error?: string;
 }
 
-// Evaluation case types
+// Evaluation case types, composit by TargetOutput and DatasetItem
 export interface EvalCase {
   userInput?: string;
   expectedOutput?: string;

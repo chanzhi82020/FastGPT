@@ -2,34 +2,34 @@ import type { ApiRequestProps } from '@fastgpt/service/type/next';
 import { NextAPI } from '@/service/middleware/entry';
 import { EvaluationDatasetService } from '@fastgpt/service/core/evaluation/dataset';
 import type {
-  DatasetDeleteQuery,
+  DeleteDatasetRequest,
   DeleteDatasetResponse
 } from '@fastgpt/global/core/evaluation/api';
 import { addLog } from '@fastgpt/service/common/system/log';
 
 async function handler(
-  req: ApiRequestProps<{}, DatasetDeleteQuery>
+  req: ApiRequestProps<{}, DeleteDatasetRequest>
 ): Promise<DeleteDatasetResponse> {
   try {
-    const { id } = req.query;
+    const { datasetId } = req.query;
 
-    if (!id) {
+    if (!datasetId) {
       return Promise.reject('Dataset ID is required');
     }
 
-    await EvaluationDatasetService.deleteDataset(id, {
+    await EvaluationDatasetService.deleteDataset(datasetId, {
       req,
       authToken: true
     });
 
     addLog.info('[Evaluation Dataset] Dataset deleted successfully', {
-      datasetId: id
+      datasetId: datasetId
     });
 
     return { message: 'Dataset deleted successfully' };
   } catch (error) {
     addLog.error('[Evaluation Dataset] Failed to delete dataset', {
-      datasetId: req.query.id,
+      datasetId: req.query.datasetId,
       error
     });
     return Promise.reject(error);

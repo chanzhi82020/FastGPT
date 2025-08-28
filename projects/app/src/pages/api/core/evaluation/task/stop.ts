@@ -11,29 +11,25 @@ async function handler(
   req: ApiRequestProps<StopEvaluationRequest>
 ): Promise<StopEvaluationResponse> {
   try {
-    if (req.method !== 'POST') {
-      return Promise.reject('Method not allowed');
-    }
+    const { evalId } = req.body;
 
-    const { evaluationId } = req.body;
-
-    if (!evaluationId) {
+    if (!evalId) {
       return Promise.reject('Evaluation ID is required');
     }
 
-    await EvaluationTaskService.stopEvaluation(evaluationId, {
+    await EvaluationTaskService.stopEvaluation(evalId, {
       req,
       authToken: true
     });
 
     addLog.info('[Evaluation] Evaluation task stopped successfully', {
-      evaluationId
+      evalId
     });
 
     return { message: 'Evaluation stopped successfully' };
   } catch (error) {
     addLog.error('[Evaluation] Failed to stop evaluation task', {
-      evaluationId: req.body?.evaluationId,
+      evalId: req.body?.evalId,
       error
     });
     return Promise.reject(error);

@@ -2,28 +2,28 @@ import type { ApiRequestProps } from '@fastgpt/service/type/next';
 import { NextAPI } from '@/service/middleware/entry';
 import { EvaluationTaskService } from '@fastgpt/service/core/evaluation/task';
 import type {
-  EvaluationItemDetailQuery,
+  EvaluationItemDetailRequest,
   EvaluationItemDetailResponse
 } from '@fastgpt/global/core/evaluation/api';
 import { addLog } from '@fastgpt/service/common/system/log';
 
 async function handler(
-  req: ApiRequestProps<{}, EvaluationItemDetailQuery>
+  req: ApiRequestProps<{}, EvaluationItemDetailRequest>
 ): Promise<EvaluationItemDetailResponse> {
   try {
-    const { id } = req.query;
+    const { evalItemId } = req.query;
 
-    if (!id) {
+    if (!evalItemId) {
       return Promise.reject('Evaluation item ID is required');
     }
 
-    const result = await EvaluationTaskService.getEvaluationItemResult(id, {
+    const result = await EvaluationTaskService.getEvaluationItemResult(evalItemId, {
       req,
       authToken: true
     });
 
     addLog.info('[Evaluation] Evaluation item details query successful', {
-      evalItemId: id,
+      evalItemId: evalItemId,
       hasResponse: !!result.response,
       score: result.score
     });
@@ -31,7 +31,7 @@ async function handler(
     return result;
   } catch (error) {
     addLog.error('[Evaluation] Failed to query evaluation item details', {
-      evalItemId: req.query?.id,
+      evalItemId: req.query?.evalItemId,
       error
     });
     return Promise.reject(error);

@@ -11,10 +11,6 @@ async function handler(
   req: ApiRequestProps<RetryEvaluationItemRequest>
 ): Promise<RetryEvaluationItemResponse> {
   try {
-    if (req.method !== 'POST') {
-      return Promise.reject('Method not allowed');
-    }
-
     const { evalItemId } = req.body;
 
     if (!evalItemId) {

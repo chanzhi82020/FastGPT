@@ -2,29 +2,33 @@ import type { ApiRequestProps } from '@fastgpt/service/type/next';
 import { NextAPI } from '@/service/middleware/entry';
 import { EvaluationTaskService } from '@fastgpt/service/core/evaluation/task';
 import type {
-  UpdateEvaluationRequest,
   UpdateEvaluationResponse,
-  UpdateEvaluationQuery
+  UpdateEvaluationRequest
 } from '@fastgpt/global/core/evaluation/api';
 import { addLog } from '@fastgpt/service/common/system/log';
+import { validateEvaluationParams } from '@fastgpt/global/core/evaluation/utils';
 
 async function handler(
-  req: ApiRequestProps<UpdateEvaluationRequest, UpdateEvaluationQuery>
+  req: ApiRequestProps<UpdateEvaluationRequest>
 ): Promise<UpdateEvaluationResponse> {
   try {
-    const { id } = req.query;
-    const { name, description } = req.body;
+    const { evalId, name, description } = req.body;
 
-    if (!id) {
+    if (!evalId) {
       return Promise.reject('Evaluation ID is required');
     }
 
-    if (name !== undefined && !name?.trim()) {
-      return Promise.reject('Evaluation name cannot be empty');
+    // Validate name and description with common validation utility
+    const paramValidation = validateEvaluationParams(
+      { name, description },
+      { namePrefix: 'Evaluation' }
+    );
+    if (!paramValidation.success) {
+      return Promise.reject(paramValidation.message);
     }
 
     await EvaluationTaskService.updateEvaluation(
-      id,
+      evalId,
       {
         ...(name !== undefined && { name: name.trim() }),
         ...(description !== undefined && { description: description?.trim() })
@@ -36,14 +40,14 @@ async function handler(
     );
 
     addLog.info('[Evaluation] Evaluation task updated successfully', {
-      evaluationId: id,
+      evalId: evalId,
       updates: { name, description }
     });
 
     return { message: 'Evaluation updated successfully' };
   } catch (error) {
     addLog.error('[Evaluation] Failed to update evaluation task', {
-      evaluationId: req.query.id,
+      evalId: req.query.evalId,
       error
     });
     return Promise.reject(error);

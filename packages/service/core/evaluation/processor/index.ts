@@ -15,7 +15,9 @@ import { checkTeamAIPoints } from '../../../support/permission/teamLimit';
 import { TeamErrEnum } from '@fastgpt/global/common/error/code/team';
 import { concatUsage } from '../../../support/wallet/usage/controller';
 import { getErrText } from '@fastgpt/global/common/error/utils';
-import type { MetricResult } from '@fastgpt/global/core/evaluation/type';
+
+// Sleep utility function
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Initialize evaluation workers
 export const initEvaluationWorkers = () => {
@@ -25,6 +27,59 @@ export const initEvaluationWorkers = () => {
   const itemWorker = getEvaluationItemWorker(evaluationItemProcessor);
 
   return { taskWorker, itemWorker };
+};
+
+// Distributed lock implementation
+const distributedLocks = new Map<string, { timestamp: number; timeout: number }>();
+
+const acquireDistributedLock = async (
+  lockKey: string,
+  timeout: number = 30000
+): Promise<{ release: () => Promise<void> }> => {
+  const now = Date.now();
+  const existing = distributedLocks.get(lockKey);
+
+  // Clean expired locks
+  if (existing && now > existing.timestamp + existing.timeout) {
+    distributedLocks.delete(lockKey);
+  }
+
+  // Wait for lock to be available
+  let attempts = 0;
+  while (distributedLocks.has(lockKey) && attempts < 10) {
+    await sleep(100);
+    attempts++;
+  }
+
+  if (distributedLocks.has(lockKey)) {
+    throw new Error(`Failed to acquire lock: ${lockKey}`);
+  }
+
+  // Acquire lock
+  distributedLocks.set(lockKey, { timestamp: now, timeout });
+
+  return {
+    release: async () => {
+      distributedLocks.delete(lockKey);
+    }
+  };
+};
+
+// Check if error is retriable
+const isRetriableError = (error: any): boolean => {
+  const retriableErrors = [
+    'NETWORK_ERROR',
+    'TIMEOUT',
+    'RATE_LIMIT',
+    'ECONNRESET',
+    'ENOTFOUND',
+    'ECONNREFUSED'
+  ];
+
+  const errorStr = error?.message || error?.code || String(error);
+  return retriableErrors.some(
+    (errType) => errorStr.includes(errType) || error === TeamErrEnum.aiPointsNotEnough
+  );
 };
 
 // Handle AI Points insufficient error
@@ -50,6 +105,9 @@ const handleAiPointsError = async (evalId: string, error: any) => {
 
 // Complete evaluation task - simplified version based on status enum statistics
 const finishEvaluationTask = async (evalId: string) => {
+  const lockKey = `eval_task_finish_${evalId}`;
+  const lock = await acquireDistributedLock(lockKey, 30000);
+
   try {
     // Simplified aggregation query: based only on status statistics
     const [statsResult] = await MongoEvalItem.aggregate([
@@ -78,7 +136,7 @@ const finishEvaluationTask = async (evalId: string) => {
             $avg: {
               $cond: [
                 { $eq: ['$status', EvaluationStatusEnum.completed] },
-                '$evaluator_output.score',
+                '$evaluatorOutput.score',
                 null
               ]
             }
@@ -111,32 +169,10 @@ const finishEvaluationTask = async (evalId: string) => {
       return; // Still have incomplete items, do not update task status
     }
 
-    // Determine task status - simplified logic based on status enum
-    let taskStatus: EvaluationStatusEnum;
-    let errorMessage: string | undefined;
+    // Task status is always completed when all items are finished
+    const taskStatus = EvaluationStatusEnum.completed;
 
-    if (errorCount === 0) {
-      // No failed items, all successful
-      taskStatus = EvaluationStatusEnum.completed;
-    } else if (completedCount === 0) {
-      // No successful items, all failed
-      taskStatus = EvaluationStatusEnum.error;
-      errorMessage = `All ${totalCount} evaluation items failed`;
-    } else {
-      // Partial failure
-      const successRate = Math.round((completedCount / totalCount) * 100);
-      if (successRate >= 80) {
-        // Success rate >=80%, mark as completed but record error
-        taskStatus = EvaluationStatusEnum.completed;
-        errorMessage = `${errorCount} evaluation items failed (success rate: ${successRate}%)`;
-      } else {
-        // Success rate <80%, mark as error
-        taskStatus = EvaluationStatusEnum.error;
-        errorMessage = `${errorCount} evaluation items failed, success rate too low: ${successRate}%`;
-      }
-    }
-
-    // Update task status
+    // Update task status with statistical fields
     await MongoEvaluation.updateOne(
       { _id: new Types.ObjectId(evalId) },
       {
@@ -144,7 +180,12 @@ const finishEvaluationTask = async (evalId: string) => {
           finishTime: new Date(),
           avgScore: avgScore != null ? Math.round(avgScore * 100) / 100 : undefined,
           status: taskStatus,
-          errorMessage
+          // Use statistics object to store execution statistics
+          statistics: {
+            totalItems: totalCount,
+            completedItems: completedCount,
+            errorItems: errorCount
+          }
         }
       }
     );
@@ -171,6 +212,8 @@ const finishEvaluationTask = async (evalId: string) => {
     } catch (updateError) {
       addLog.error(`[Evaluation] Failed to update task error status: ${evalId}`, updateError);
     }
+  } finally {
+    await lock.release();
   }
 };
 
@@ -185,7 +228,7 @@ const handleEvalItemError = async (evalItemId: string, error: any) => {
     return;
   }
 
-  const newRetryCount = evalItem.retry - 1;
+  const newRetryCount = isRetriableError(error) ? evalItem.retry - 1 : 0;
   const newStatus = newRetryCount > 0 ? EvaluationStatusEnum.queuing : EvaluationStatusEnum.error;
 
   await MongoEvalItem.updateOne(
@@ -268,6 +311,36 @@ const evaluationTaskProcessor = async (job: Job<EvaluationTaskJobData>) => {
       throw new Error('Evaluators configuration invalid');
     }
 
+    // Check if evaluation items already exist (reentrant handling)
+    const existingItems = await MongoEvalItem.find({ evalId }).lean();
+    if (existingItems.length > 0) {
+      addLog.info(`[Evaluation] Task already has ${existingItems.length} items, resuming...`);
+
+      // Re-submit unfinished items to queue
+      const pendingItems = existingItems.filter(
+        (item) =>
+          item.status === EvaluationStatusEnum.queuing ||
+          (item.status === EvaluationStatusEnum.error && item.retry > 0)
+      );
+
+      if (pendingItems.length > 0) {
+        const jobs = pendingItems.map((item, index) => ({
+          name: `eval_item_${evalId}_resume_${index}`,
+          data: {
+            evalId,
+            evalItemId: item._id.toString()
+          },
+          opts: {
+            delay: index * 100
+          }
+        }));
+
+        await evaluationItemQueue.addBulk(jobs);
+        addLog.info(`[Evaluation] Resumed ${jobs.length} pending items`);
+      }
+      return;
+    }
+
     // Create evaluation items for each dataItem and each evaluator (atomic structure)
     const evalItems = [];
     for (const dataItem of dataset.dataItems) {
@@ -334,6 +407,12 @@ const evaluationItemProcessor = async (job: Job<EvaluationItemJobData>) => {
       throw new Error('Evaluation item does not exist');
     }
 
+    // Check if item is already completed (reentrant handling)
+    if (evalItem.status === EvaluationStatusEnum.completed) {
+      addLog.debug(`[Evaluation] Item already completed: ${evalItemId}`);
+      return;
+    }
+
     // Get evaluation information for AI Points check
     const evaluation = await MongoEvaluation.findById(evalId, 'teamId tmbId usageId');
     if (!evaluation) {
@@ -343,63 +422,91 @@ const evaluationItemProcessor = async (job: Job<EvaluationItemJobData>) => {
     // Check AI Points
     await checkTeamAIPoints(evaluation.teamId);
 
+    let targetOutput = evalItem.targetOutput;
+    let evaluatorOutput = evalItem.evaluatorOutput;
+    let shouldExecuteTarget = true;
+    let shouldExecuteEvaluator = true;
+
+    // Resume from checkpoint if partially completed
+    if (evalItem.status === EvaluationStatusEnum.evaluating) {
+      if (evalItem.evaluatorOutput) {
+        addLog.info(`[Evaluation] Item already completed evaluator: ${evalItemId}`);
+        return; // Already completed, nothing to do
+      } else if (evalItem.targetOutput) {
+        addLog.info(`[Evaluation] Resuming from evaluator: ${evalItemId}`);
+        targetOutput = evalItem.targetOutput;
+        shouldExecuteTarget = false;
+      } else {
+        addLog.info(`[Evaluation] Restarting item: ${evalItemId}`);
+      }
+    }
+
     // Update status to processing
     await MongoEvalItem.updateOne(
       { _id: new Types.ObjectId(evalItemId) },
       { $set: { status: EvaluationStatusEnum.evaluating } }
     );
 
-    // 1. Call evaluation target
-    const targetInstance = createTargetInstance(evalItem.target);
-    const output = await targetInstance.execute({
-      userInput: evalItem.dataItem.userInput,
-      context: evalItem.dataItem.context,
-      globalVariables: evalItem.dataItem.globalVariables
-    });
+    // 1. Call evaluation target (if not already done)
+    if (shouldExecuteTarget) {
+      const targetInstance = createTargetInstance(evalItem.target);
+      targetOutput = await targetInstance.execute({
+        userInput: evalItem.dataItem.userInput,
+        context: evalItem.dataItem.context,
+        globalVariables: evalItem.dataItem.globalVariables
+      });
 
-    // Record usage from target call
-    if (output.usage) {
-      const totalPoints = output.usage.reduce(
-        (sum: number, item: any) => sum + (item.totalPoints || 0),
-        0
+      // Save target output as checkpoint
+      await MongoEvalItem.updateOne(
+        { _id: new Types.ObjectId(evalItemId) },
+        { $set: { targetOutput: targetOutput } }
       );
-      await createMergedEvaluationUsage({
-        evalId,
-        teamId: evaluation.teamId,
-        tmbId: evaluation.tmbId,
-        usageId: evaluation.usageId,
-        totalPoints,
-        type: 'target'
+
+      // Record usage from target call
+      if (targetOutput.usage) {
+        const totalPoints = targetOutput.usage.reduce(
+          (sum: number, item: any) => sum + (item.totalPoints || 0),
+          0
+        );
+        await createMergedEvaluationUsage({
+          evalId,
+          teamId: evaluation.teamId,
+          tmbId: evaluation.tmbId,
+          usageId: evaluation.usageId,
+          totalPoints,
+          type: 'target'
+        });
+      }
+    }
+
+    // Ensure output is available for evaluator
+    if (!targetOutput) {
+      throw new Error('Target output is required for evaluation');
+    }
+
+    // 2. Execute evaluator (if not already done)
+    let totalMetricPoints = 0;
+
+    if (shouldExecuteEvaluator) {
+      const evaluatorInstance = createEvaluatorInstance(evalItem.evaluator);
+
+      evaluatorOutput = await evaluatorInstance.evaluate({
+        userInput: evalItem.dataItem.userInput,
+        expectedOutput: evalItem.dataItem.expectedOutput,
+        actualOutput: targetOutput.actualOutput,
+        context: evalItem.dataItem.context,
+        retrievalContext: targetOutput.retrievalContext
       });
     }
 
-    // 2. Execute evaluator
-    let result: MetricResult;
-    let totalMetricPoints = 0;
+    // Ensure evaluatorOutput is available
+    if (!evaluatorOutput) {
+      throw new Error('Evaluator output is required for completion');
+    }
 
-    try {
-      const evaluatorInstance = createEvaluatorInstance(evalItem.evaluator);
-
-      result = await evaluatorInstance.evaluate({
-        userInput: evalItem.dataItem.userInput,
-        expectedOutput: evalItem.dataItem.expectedOutput,
-        actualOutput: output.actualOutput,
-        context: evalItem.dataItem.context,
-        retrievalContext: output.retrievalContext
-      });
-
-      // If it's an AI model metric, record usage
-      if (evalItem.evaluator.metric.type === 'ai_model' && result.details?.usage) {
-        totalMetricPoints += result.details.usage.totalPoints || 0;
-      }
-    } catch (error) {
-      // Evaluator failed
-      result = {
-        metricId: evalItem.evaluator.metric._id,
-        metricName: evalItem.evaluator.metric.name,
-        score: 0,
-        error: getErrText(error)
-      };
+    // Record usage from metric evaluation
+    if (evalItem.evaluator.metric.type === 'ai_model' && evaluatorOutput.details?.usage) {
+      totalMetricPoints += evaluatorOutput.details.usage.totalPoints || 0;
     }
 
     // Record usage from metric evaluation
@@ -419,15 +526,17 @@ const evaluationItemProcessor = async (job: Job<EvaluationItemJobData>) => {
       { _id: new Types.ObjectId(evalItemId) },
       {
         $set: {
-          target_output: output,
-          evaluator_output: result,
+          targetOutput: targetOutput,
+          evaluatorOutput: evaluatorOutput,
           status: EvaluationStatusEnum.completed,
           finishTime: new Date()
         }
       }
     );
 
-    addLog.debug(`[Evaluation] Evaluation item completed: ${evalItemId}, score: ${result.score}`);
+    addLog.debug(
+      `[Evaluation] Evaluation item completed: ${evalItemId}, score: ${evaluatorOutput.score}`
+    );
   } catch (error) {
     await handleEvalItemError(evalItemId, error);
 

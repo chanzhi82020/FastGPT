@@ -2,14 +2,13 @@ import type { ApiRequestProps } from '@fastgpt/service/type/next';
 import { NextAPI } from '@/service/middleware/entry';
 import { addLog } from '@fastgpt/service/common/system/log';
 import { EvaluationTaskService } from '@fastgpt/service/core/evaluation/task';
-import { checkTeamAIPoints } from '@fastgpt/service/support/permission/teamLimit';
 import type { EvalTarget } from '@fastgpt/global/core/evaluation/type';
 import type {
   CreateEvaluationRequest,
   CreateEvaluationResponse
 } from '@fastgpt/global/core/evaluation/api';
 import { validateTargetConfig } from '@fastgpt/service/core/evaluation/target';
-import { authCert } from '@fastgpt/service/support/permission/auth/common';
+import { validateEvaluationParams } from '@fastgpt/global/core/evaluation/utils';
 
 async function handler(
   req: ApiRequestProps<CreateEvaluationRequest>
@@ -17,9 +16,13 @@ async function handler(
   try {
     const { name, description, datasetId, target, evaluators } = req.body;
 
-    // Validate required fields
-    if (!name?.trim()) {
-      return Promise.reject('Evaluation name is required');
+    // Validate name and description
+    const paramValidation = validateEvaluationParams(
+      { name, description },
+      { namePrefix: 'Evaluation' }
+    );
+    if (!paramValidation.success) {
+      return Promise.reject(paramValidation.message);
     }
 
     const targetValidation = await validateTargetConfig(target as EvalTarget);
@@ -58,7 +61,7 @@ async function handler(
     );
 
     addLog.info('[Evaluation] Evaluation task created successfully', {
-      evaluationId: evaluation._id,
+      evalId: evaluation._id,
       name: evaluation.name,
       datasetId,
       targetType: target.type,

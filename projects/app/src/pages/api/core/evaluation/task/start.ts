@@ -11,29 +11,25 @@ async function handler(
   req: ApiRequestProps<StartEvaluationRequest>
 ): Promise<StartEvaluationResponse> {
   try {
-    if (req.method !== 'POST') {
-      return Promise.reject('Method not allowed');
-    }
+    const { evalId } = req.body;
 
-    const { evaluationId } = req.body;
-
-    if (!evaluationId) {
+    if (!evalId) {
       return Promise.reject('Evaluation ID is required');
     }
 
-    await EvaluationTaskService.startEvaluation(evaluationId, {
+    await EvaluationTaskService.startEvaluation(evalId, {
       req,
       authToken: true
     });
 
     addLog.info('[Evaluation] Evaluation task started successfully', {
-      evaluationId
+      evalId
     });
 
     return { message: 'Evaluation started successfully' };
   } catch (error) {
     addLog.error('[Evaluation] Failed to start evaluation task', {
-      evaluationId: req.body?.evaluationId,
+      evalId: req.body?.evalId,
       error
     });
     return Promise.reject(error);

@@ -2,28 +2,28 @@ import type { ApiRequestProps } from '@fastgpt/service/type/next';
 import { NextAPI } from '@/service/middleware/entry';
 import { EvaluationTaskService } from '@fastgpt/service/core/evaluation/task';
 import type {
-  EvaluationDetailQuery,
+  EvaluationDetailRequest,
   EvaluationDetailResponse
 } from '@fastgpt/global/core/evaluation/api';
 import { addLog } from '@fastgpt/service/common/system/log';
 
 async function handler(
-  req: ApiRequestProps<{}, EvaluationDetailQuery>
+  req: ApiRequestProps<{}, EvaluationDetailRequest>
 ): Promise<EvaluationDetailResponse> {
   try {
-    const { id } = req.query;
+    const { evalId } = req.query;
 
-    if (!id) {
+    if (!evalId) {
       return Promise.reject('Evaluation ID is required');
     }
 
-    const evaluation = await EvaluationTaskService.getEvaluation(id, {
+    const evaluation = await EvaluationTaskService.getEvaluation(evalId, {
       req,
       authToken: true
     });
 
     addLog.info('[Evaluation] Evaluation task details retrieved successfully', {
-      evaluationId: id,
+      evalId: evalId,
       name: evaluation.name,
       status: evaluation.status
     });
@@ -31,7 +31,7 @@ async function handler(
     return evaluation;
   } catch (error) {
     addLog.error('[Evaluation] Failed to get evaluation task details', {
-      evaluationId: req.query.id,
+      evalId: req.query.evalId,
       error
     });
     return Promise.reject(error);

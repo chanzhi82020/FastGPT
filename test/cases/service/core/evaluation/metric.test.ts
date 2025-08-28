@@ -207,10 +207,7 @@ describe('AiModelEvaluator', () => {
   test('应该处理 AI 评估错误', async () => {
     (getAppEvaluationScore as any).mockRejectedValueOnce(new Error('AI service error'));
 
-    const result = await aiEvaluator.evaluate(testCase);
-
-    expect(result.score).toBe(0);
-    expect(result.error).toBe('AI service error');
+    await expect(aiEvaluator.evaluate(testCase)).rejects.toThrow('AI service error');
   });
 
   test('应该验证模型可用性', async () => {

@@ -1,30 +1,33 @@
 import { DELETE, GET, POST, PUT } from '@/web/common/api/request';
-import type { ListMetricsRequest, ListMetricsResponse } from '@fastgpt/global/core/evaluation/api';
 import type {
-  CreateMetricParams,
-  EvaluationMetricSchemaType
-} from '@fastgpt/global/core/evaluation/type';
+  CreateMetricRequest,
+  CreateMetricResponse,
+  ListMetricsRequest,
+  ListMetricsResponse,
+  MetricDetailResponse,
+  UpdateMetricRequest,
+  UpdateMetricResponse,
+  DeleteMetricResponse,
+  TestMetricRequest,
+  TestMetricResponse
+} from '@fastgpt/global/core/evaluation/api';
 
 // ==================== 评估指标管理 API ====================
 
-export const createMetric = (data: CreateMetricParams) =>
-  POST<EvaluationMetricSchemaType>('/core/evaluation/metric/create', data);
+export const createMetric = (data: CreateMetricRequest) =>
+  POST<CreateMetricResponse>('/core/evaluation/metric/create', data);
 
 export const getMetricList = (data: ListMetricsRequest) =>
   POST<ListMetricsResponse>('/core/evaluation/metric/list', data);
 
 export const getMetricDetail = (metricId: string) =>
-  GET<EvaluationMetricSchemaType>(`/core/evaluation/metric/detail?id=${metricId}`);
+  GET<MetricDetailResponse>(`/core/evaluation/metric/detail?metricId=${metricId}`);
 
-export const updateMetric = (metricId: string, data: CreateMetricParams) =>
-  PUT<EvaluationMetricSchemaType>(`/core/evaluation/metric/update?id=${metricId}`, data);
+export const updateMetric = (data: UpdateMetricRequest) =>
+  PUT<UpdateMetricResponse>('/core/evaluation/metric/update', data);
 
 export const deleteMetric = (metricId: string) =>
-  DELETE(`/core/evaluation/metric/delete?id=${metricId}`);
+  DELETE<DeleteMetricResponse>(`/core/evaluation/metric/delete?metricId=${metricId}`);
 
-export const testMetric = (data: { metricId: string; testCase: any }) =>
-  POST<{
-    success: boolean;
-    result?: any;
-    error?: string;
-  }>('/core/evaluation/metric/test', data);
+export const testMetric = (data: TestMetricRequest) =>
+  POST<TestMetricResponse>('/core/evaluation/metric/test', data);

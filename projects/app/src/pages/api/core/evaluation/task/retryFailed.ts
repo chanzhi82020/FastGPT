@@ -3,31 +3,27 @@ import { NextAPI } from '@/service/middleware/entry';
 import { EvaluationTaskService } from '@fastgpt/service/core/evaluation/task';
 import { addLog } from '@fastgpt/service/common/system/log';
 import type {
-  RetryFailedItemsBody,
+  RetryFailedEvaluationItemsRequest,
   RetryFailedItemsResponse
 } from '@fastgpt/global/core/evaluation/api';
 
 async function handler(
-  req: ApiRequestProps<RetryFailedItemsBody>
+  req: ApiRequestProps<RetryFailedEvaluationItemsRequest>
 ): Promise<RetryFailedItemsResponse> {
   try {
-    if (req.method !== 'POST') {
-      return Promise.reject('Method not allowed');
-    }
+    const { evalId } = req.body;
 
-    const { evaluationId } = req.body;
-
-    if (!evaluationId) {
+    if (!evalId) {
       return Promise.reject('Evaluation ID is required');
     }
 
-    const retryCount = await EvaluationTaskService.retryFailedItems(evaluationId, {
+    const retryCount = await EvaluationTaskService.retryFailedItems(evalId, {
       req,
       authToken: true
     });
 
     addLog.info('[Evaluation] Failed items retry batch started successfully', {
-      evaluationId,
+      evalId,
       retryCount
     });
 
@@ -37,7 +33,7 @@ async function handler(
     };
   } catch (error) {
     addLog.error('[Evaluation] Failed to retry failed items batch', {
-      evaluationId: req.body?.evaluationId,
+      evalId: req.body?.evalId,
       error
     });
     return Promise.reject(error);

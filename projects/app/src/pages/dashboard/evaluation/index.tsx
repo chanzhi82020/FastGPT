@@ -121,45 +121,39 @@ const Evaluation = () => {
     }
   });
 
-  const { runAsync: onStopTask } = useRequest2(
-    (evaluationId: string) => stopEvaluation(evaluationId),
-    {
-      onSuccess: () => {
-        fetchTaskData();
-        toast({
-          title: t('dashboard_evaluation:task_stopped'),
-          status: 'success'
-        });
-      },
-      onError: (error) => {
-        toast({
-          title: t('dashboard_evaluation:stop_task_failed'),
-          description: error.message,
-          status: 'error'
-        });
-      }
+  const { runAsync: onStopTask } = useRequest2((evalId: string) => stopEvaluation(evalId), {
+    onSuccess: () => {
+      fetchTaskData();
+      toast({
+        title: t('dashboard_evaluation:task_stopped'),
+        status: 'success'
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: t('dashboard_evaluation:stop_task_failed'),
+        description: error.message,
+        status: 'error'
+      });
     }
-  );
+  });
 
-  const { runAsync: onRestartTask } = useRequest2(
-    (evaluationId: string) => retryFailedItems(evaluationId),
-    {
-      onSuccess: () => {
-        fetchTaskData();
-        toast({
-          title: t('dashboard_evaluation:task_restarted'),
-          status: 'success'
-        });
-      },
-      onError: (error) => {
-        toast({
-          title: t('dashboard_evaluation:restart_task_failed'),
-          description: error.message,
-          status: 'error'
-        });
-      }
+  const { runAsync: onRestartTask } = useRequest2((evalId: string) => retryFailedItems(evalId), {
+    onSuccess: () => {
+      fetchTaskData();
+      toast({
+        title: t('dashboard_evaluation:task_restarted'),
+        status: 'success'
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: t('dashboard_evaluation:restart_task_failed'),
+        description: error.message,
+        status: 'error'
+      });
     }
-  );
+  });
 
   const evalDetail = tasks.find((item: EvaluationDisplayType) => item._id === evalDetailId);
 
@@ -390,7 +384,7 @@ const Evaluation = () => {
                           />
                         }
                         content={t('dashboard_evaluation:comfirm_delete_task')}
-                        onConfirm={() => onDeleteTask({ evalId: item._id })}
+                        onConfirm={() => onDeleteTask(item._id)}
                       />
                     </Flex>
                   </Td>

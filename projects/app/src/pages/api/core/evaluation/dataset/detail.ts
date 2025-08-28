@@ -2,28 +2,28 @@ import type { ApiRequestProps } from '@fastgpt/service/type/next';
 import { NextAPI } from '@/service/middleware/entry';
 import { EvaluationDatasetService } from '@fastgpt/service/core/evaluation/dataset';
 import type {
-  DatasetDetailQuery,
+  DatasetDetailRequest,
   DatasetDetailResponse
 } from '@fastgpt/global/core/evaluation/api';
 import { addLog } from '@fastgpt/service/common/system/log';
 
 async function handler(
-  req: ApiRequestProps<{}, DatasetDetailQuery>
+  req: ApiRequestProps<{}, DatasetDetailRequest>
 ): Promise<DatasetDetailResponse> {
   try {
-    const { id } = req.query;
+    const { datasetId } = req.query;
 
-    if (!id) {
+    if (!datasetId) {
       return Promise.reject('Dataset ID is required');
     }
 
-    const dataset = await EvaluationDatasetService.getDataset(id, {
+    const dataset = await EvaluationDatasetService.getDataset(datasetId, {
       req,
       authToken: true
     });
 
     addLog.info('[Evaluation Dataset] Dataset details retrieved successfully', {
-      datasetId: id,
+      datasetId: datasetId,
       name: dataset.name,
       itemCount: dataset.dataItems?.length || 0
     });
@@ -31,7 +31,7 @@ async function handler(
     return dataset;
   } catch (error) {
     addLog.error('[Evaluation Dataset] Failed to get dataset details', {
-      datasetId: req.query.id,
+      datasetId: req.query.datasetId,
       error
     });
     return Promise.reject(error);

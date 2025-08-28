@@ -29,8 +29,34 @@ import { getRunningUserInfoByTmbId } from '../../../support/user/team/utils';
 import { removeDatasetCiteText } from '../../ai/utils';
 import { saveChat } from '../../chat/saveChat';
 import { getChatTitleFromChatMessage } from '@fastgpt/global/core/chat/utils';
-import { getSystemTime } from '@fastgpt/global/common/time/timezone';
 import { DispatchNodeResponseKeyEnum } from '@fastgpt/global/core/workflow/runtime/constants';
+import { FlowNodeTypeEnum } from '@fastgpt/global/core/workflow/node/constant';
+import type { ChatHistoryItemResType } from '@fastgpt/global/core/chat/type';
+
+// Helper function to extract retrieval context from workflow results
+function extractRetrievalContext(flowResponses: ChatHistoryItemResType[]): string[] {
+  const retrievalContext: string[] = [];
+
+  // Find all datasetSearchNode responses
+  const datasetSearchResponses = flowResponses.filter(
+    (response) => response.moduleType === FlowNodeTypeEnum.datasetSearchNode
+  );
+
+  // Extract quoteList from each datasetSearchNode response
+  for (const response of datasetSearchResponses) {
+    if (response.quoteList && Array.isArray(response.quoteList)) {
+      for (const quote of response.quoteList) {
+        // Extract the content from q and a fields and combine them
+        const content = [quote.q, quote.a].filter(Boolean).join('\n').trim();
+        if (content) {
+          retrievalContext.push(content);
+        }
+      }
+    }
+  }
+
+  return retrievalContext;
+}
 
 // Evaluation target base class
 export abstract class EvaluationTarget {
@@ -135,7 +161,7 @@ export class WorkflowTarget extends EvaluationTarget {
 
     return {
       actualOutput: response,
-      retrievalContext: [], // TODO: Extract retrieval context from workflow results
+      retrievalContext: extractRetrievalContext(flowResponses),
       usage: flowUsages,
       responseTime: Date.now() - startTime
     };

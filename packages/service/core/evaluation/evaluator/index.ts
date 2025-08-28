@@ -35,39 +35,30 @@ export class AiModelEvaluator extends Evaluator {
   }
 
   async evaluate(evalCase: EvalCase): Promise<MetricResult> {
-    try {
-      const modelToUse = this.runtimeConfig.llm || this.config.llm;
+    const modelToUse = this.runtimeConfig.llm || this.config.llm;
 
-      if (!modelToUse) {
-        throw new Error('No LLM model specified in runtime config or metric config');
-      }
+    if (!modelToUse) {
+      throw new Error('No LLM model specified in runtime config or metric config');
+    }
 
-      const { score, usage } = await getAppEvaluationScore({
-        userInput: evalCase.userInput || '',
-        appAnswer: evalCase.actualOutput || '',
-        standardAnswer: evalCase.expectedOutput || '',
+    const { score, usage } = await getAppEvaluationScore({
+      userInput: evalCase.userInput || '',
+      appAnswer: evalCase.actualOutput || '',
+      standardAnswer: evalCase.expectedOutput || '',
+      model: modelToUse,
+      prompt: this.config.prompt
+    });
+
+    return {
+      metricId: this.metricId,
+      metricName: this.name,
+      score,
+      details: {
+        usage,
         model: modelToUse,
         prompt: this.config.prompt
-      });
-
-      return {
-        metricId: this.metricId,
-        metricName: this.name,
-        score,
-        details: {
-          usage,
-          model: modelToUse,
-          prompt: this.config.prompt
-        }
-      };
-    } catch (error) {
-      return {
-        metricId: this.metricId,
-        metricName: this.name,
-        score: 0,
-        error: error instanceof Error ? error.message : String(error)
-      };
-    }
+      }
+    };
   }
 
   getName(): string {

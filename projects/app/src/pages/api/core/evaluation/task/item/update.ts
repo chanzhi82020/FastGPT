@@ -12,10 +12,6 @@ async function handler(
   req: ApiRequestProps<UpdateEvaluationItemRequest>
 ): Promise<UpdateEvaluationItemResponse> {
   try {
-    if (req.method !== 'PUT') {
-      return Promise.reject('Method not allowed');
-    }
-
     const { evalItemId, userInput, expectedOutput, variables } = req.body;
 
     if (!evalItemId) {

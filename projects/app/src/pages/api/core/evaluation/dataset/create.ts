@@ -6,14 +6,19 @@ import type {
   CreateDatasetResponse
 } from '@fastgpt/global/core/evaluation/api';
 import { addLog } from '@fastgpt/service/common/system/log';
+import { validateEvaluationParams } from '@fastgpt/global/core/evaluation/utils';
 
 async function handler(req: ApiRequestProps<CreateDatasetRequest>): Promise<CreateDatasetResponse> {
   try {
     const { name, description, dataFormat, columns } = req.body;
 
-    // Validate required fields
-    if (!name?.trim()) {
-      return Promise.reject('Dataset name is required');
+    // Validate name and description
+    const paramValidation = validateEvaluationParams(
+      { name, description },
+      { namePrefix: 'Dataset' }
+    );
+    if (!paramValidation.success) {
+      return Promise.reject(paramValidation.message);
     }
 
     if (!columns || !Array.isArray(columns) || columns.length === 0) {

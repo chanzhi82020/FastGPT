@@ -392,7 +392,7 @@ const EvaluationDetailModal = ({
                             }
                             type="delete"
                             content={t('dashboard_evaluation:comfirm_delete_item')}
-                            onConfirm={() => delEvalItem({ evalItemId: evalItem.evalItemId })}
+                            onConfirm={() => delEvalItem(evalItem.evalItemId)}
                           />
                         )}
                       </>
@@ -465,8 +465,8 @@ const EvaluationDetailModal = ({
                             {formattedStatus}
                           </Box>
                           <Box flex={2} px={4} color={'myGray.600'}>
-                            {typeof item.evaluator_output?.score === 'number'
-                              ? (item.evaluator_output.score * 100).toFixed(2)
+                            {typeof item.evaluatorOutput?.score === 'number'
+                              ? (item.evaluatorOutput.score * 100).toFixed(2)
                               : '-'}
                           </Box>
                         </Flex>
@@ -595,7 +595,7 @@ const EvaluationDetailModal = ({
                     <Box borderBottom={'1px solid'} borderColor={'myGray.200'} py={5}>
                       <Box>{t('dashboard_evaluation:app_response')}</Box>
                       <Box color={'myGray.900'} mt={3}>
-                        {evalItem?.target_output?.actualOutput}
+                        {evalItem?.targetOutput?.actualOutput}
                       </Box>
                     </Box>
                   )}

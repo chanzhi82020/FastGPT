@@ -2,28 +2,28 @@ import type { ApiRequestProps, ApiResponseType } from '@fastgpt/service/type/nex
 import { NextAPI } from '@/service/middleware/entry';
 import { EvaluationTaskService } from '@fastgpt/service/core/evaluation/task';
 import type {
-  EvaluationStatsQuery,
+  StatsEvaluationRequest,
   EvaluationStatsResponse
 } from '@fastgpt/global/core/evaluation/api';
 import { addLog } from '@fastgpt/service/common/system/log';
 
 async function handler(
-  req: ApiRequestProps<{}, EvaluationStatsQuery>
+  req: ApiRequestProps<{}, StatsEvaluationRequest>
 ): Promise<EvaluationStatsResponse> {
   try {
-    const { evaluationId } = req.query;
+    const { evalId } = req.query;
 
-    if (!evaluationId) {
+    if (!evalId) {
       return Promise.reject('Evaluation ID is required');
     }
 
-    const stats = await EvaluationTaskService.getEvaluationStats(evaluationId, {
+    const stats = await EvaluationTaskService.getEvaluationStats(evalId, {
       req,
       authToken: true
     });
 
     addLog.info('[Evaluation] Evaluation task statistics query successful', {
-      evaluationId,
+      evalId,
       total: stats.total,
       completed: stats.completed,
       avgScore: stats.avgScore
@@ -32,7 +32,7 @@ async function handler(
     return stats;
   } catch (error) {
     addLog.error('[Evaluation] Failed to query evaluation task statistics', {
-      evaluationId: req.query?.evaluationId,
+      evalId: req.query?.evalId,
       error
     });
     return Promise.reject(error);

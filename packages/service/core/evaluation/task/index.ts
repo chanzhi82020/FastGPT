@@ -56,12 +56,9 @@ export class EvaluationTaskService {
     return evaluation.toObject();
   }
 
-  static async getEvaluation(
-    evaluationId: string,
-    auth: AuthModeType
-  ): Promise<EvaluationSchemaType> {
+  static async getEvaluation(evalId: string, auth: AuthModeType): Promise<EvaluationSchemaType> {
     const { resourceFilter, notFoundError } = await validateResourceAccess(
-      evaluationId,
+      evalId,
       auth,
       'Evaluation'
     );
@@ -76,34 +73,31 @@ export class EvaluationTaskService {
   }
 
   static async updateEvaluation(
-    evaluationId: string,
+    evalId: string,
     updates: Partial<CreateEvaluationParams>,
     auth: AuthModeType
   ): Promise<void> {
-    const { resourceFilter } = await validateResourceAccess(evaluationId, auth, 'Evaluation');
+    const { resourceFilter } = await validateResourceAccess(evalId, auth, 'Evaluation');
 
     const result = await MongoEvaluation.updateOne(resourceFilter, { $set: updates });
 
     checkUpdateResult(result, 'Evaluation');
   }
 
-  static async deleteEvaluation(evaluationId: string, auth: AuthModeType): Promise<void> {
-    const { resourceFilter } = await validateResourceAccess(evaluationId, auth, 'Evaluation');
+  static async deleteEvaluation(evalId: string, auth: AuthModeType): Promise<void> {
+    const { resourceFilter } = await validateResourceAccess(evalId, auth, 'Evaluation');
 
     // Remove related tasks from queue to prevent further processing
-    await Promise.all([
-      removeEvaluationTaskJob(evaluationId),
-      removeEvaluationItemJobs(evaluationId)
-    ]);
+    await Promise.all([removeEvaluationTaskJob(evalId), removeEvaluationItemJobs(evalId)]);
 
     // Delete all evaluation items for this evaluation task
-    await MongoEvalItem.deleteMany({ evalId: evaluationId });
+    await MongoEvalItem.deleteMany({ evalId: evalId });
 
     const result = await MongoEvaluation.deleteOne(resourceFilter);
 
     checkDeleteResult(result, 'Evaluation');
 
-    addLog.info(`[Evaluation] Evaluation task deleted including queue cleanup: ${evaluationId}`);
+    addLog.info(`[Evaluation] Evaluation task deleted including queue cleanup: ${evalId}`);
   }
 
   static async listEvaluations(
@@ -153,10 +147,6 @@ export class EvaluationTaskService {
                   {
                     case: { $eq: ['$target.type', 'workflow'] },
                     then: { $concat: ['Workflow: ', { $toString: '$target.config.appId' }] }
-                  },
-                  {
-                    case: { $eq: ['$target.type', 'api'] },
-                    then: { $concat: ['API: ', '$target.config.url'] }
                   }
                 ],
                 default: 'Unknown Target'
@@ -220,7 +210,7 @@ export class EvaluationTaskService {
   }
 
   static async listEvaluationItems(
-    evaluationId: string,
+    evalId: string,
     auth: AuthModeType,
     page: number = 1,
     pageSize: number = 20
@@ -228,13 +218,13 @@ export class EvaluationTaskService {
     items: EvaluationItemDisplayType[];
     total: number;
   }> {
-    await this.getEvaluation(evaluationId, auth);
+    await this.getEvaluation(evalId, auth);
 
     const skip = (page - 1) * pageSize;
     const limit = pageSize;
 
     const [items, total] = await Promise.all([
-      MongoEvalItem.find({ evalId: evaluationId })
+      MongoEvalItem.find({ evalId: evalId })
         .sort({ createTime: -1 })
         .skip(skip)
         .limit(limit)
@@ -245,14 +235,14 @@ export class EvaluationTaskService {
             evalItemId: item._id.toString()
           }))
         ),
-      MongoEvalItem.countDocuments({ evalId: evaluationId })
+      MongoEvalItem.countDocuments({ evalId: evalId })
     ]);
 
     return { items, total };
   }
 
-  static async startEvaluation(evaluationId: string, auth: AuthModeType): Promise<void> {
-    const evaluation = await this.getEvaluation(evaluationId, auth);
+  static async startEvaluation(evalId: string, auth: AuthModeType): Promise<void> {
+    const evaluation = await this.getEvaluation(evalId, auth);
 
     if (evaluation.status !== EvaluationStatusEnum.queuing) {
       throw new Error('Only queuing evaluations can be started');
@@ -260,20 +250,20 @@ export class EvaluationTaskService {
 
     // Update status to processing
     await MongoEvaluation.updateOne(
-      { _id: evaluationId },
+      { _id: evalId },
       { $set: { status: EvaluationStatusEnum.evaluating } }
     );
 
     // Submit to queue
-    await evaluationTaskQueue.add(`eval_task_${evaluationId}`, {
-      evalId: evaluationId
+    await evaluationTaskQueue.add(`eval_task_${evalId}`, {
+      evalId: evalId
     });
 
-    addLog.info(`[Evaluation] Task submitted to queue: ${evaluationId}`);
+    addLog.info(`[Evaluation] Task submitted to queue: ${evalId}`);
   }
 
-  static async stopEvaluation(evaluationId: string, auth: AuthModeType): Promise<void> {
-    const evaluation = await this.getEvaluation(evaluationId, auth);
+  static async stopEvaluation(evalId: string, auth: AuthModeType): Promise<void> {
+    const evaluation = await this.getEvaluation(evalId, auth);
 
     if (
       ![EvaluationStatusEnum.evaluating, EvaluationStatusEnum.queuing].includes(evaluation.status)
@@ -282,14 +272,11 @@ export class EvaluationTaskService {
     }
 
     // Remove related tasks from queue
-    await Promise.all([
-      removeEvaluationTaskJob(evaluationId),
-      removeEvaluationItemJobs(evaluationId)
-    ]);
+    await Promise.all([removeEvaluationTaskJob(evalId), removeEvaluationItemJobs(evalId)]);
 
     // Update status to error (manually stopped)
     await MongoEvaluation.updateOne(
-      { _id: evaluationId },
+      { _id: evalId },
       {
         $set: {
           status: EvaluationStatusEnum.error,
@@ -302,7 +289,7 @@ export class EvaluationTaskService {
     // Stop all related evaluation items
     await MongoEvalItem.updateMany(
       {
-        evalId: evaluationId,
+        evalId: evalId,
         status: { $in: [EvaluationStatusEnum.queuing, EvaluationStatusEnum.evaluating] }
       },
       {
@@ -314,11 +301,11 @@ export class EvaluationTaskService {
       }
     );
 
-    addLog.info(`[Evaluation] Task manually stopped and removed from queue: ${evaluationId}`);
+    addLog.info(`[Evaluation] Task manually stopped and removed from queue: ${evalId}`);
   }
 
   static async getEvaluationStats(
-    evaluationId: string,
+    evalId: string,
     auth: AuthModeType
   ): Promise<{
     total: number;
@@ -328,15 +315,15 @@ export class EvaluationTaskService {
     error: number;
     avgScore?: number;
   }> {
-    await this.getEvaluation(evaluationId, auth);
+    await this.getEvaluation(evalId, auth);
 
     const stats = await MongoEvalItem.aggregate([
-      { $match: { evalId: evaluationId } },
+      { $match: { evalId: evalId } },
       {
         $group: {
           _id: '$status',
           count: { $sum: 1 },
-          avgScore: { $avg: '$evaluator_output.score' }
+          avgScore: { $avg: '$evaluatorOutput.score' }
         }
       }
     ]);
@@ -370,7 +357,7 @@ export class EvaluationTaskService {
 
     // Count error items
     result.error = await MongoEvalItem.countDocuments({
-      evalId: evaluationId,
+      evalId: evalId,
       errorMessage: { $ne: null }
     });
 
@@ -434,8 +421,8 @@ export class EvaluationTaskService {
       {
         $set: {
           status: EvaluationStatusEnum.queuing,
-          target_output: null,
-          evaluator_output: null,
+          targetOutput: null,
+          evaluatorOutput: null,
           finishTime: null,
           errorMessage: null,
           retry: Math.max(item.retry || 0, 1) // Ensure at least 1 retry chance
@@ -452,13 +439,13 @@ export class EvaluationTaskService {
     addLog.info(`[Evaluation] Evaluation item reset to queuing status and resubmitted: ${itemId}`);
   }
 
-  static async retryFailedItems(evaluationId: string, auth: AuthModeType): Promise<number> {
-    await this.getEvaluation(evaluationId, auth);
+  static async retryFailedItems(evalId: string, auth: AuthModeType): Promise<number> {
+    await this.getEvaluation(evalId, auth);
 
     // Find items that need to be retried
     const itemsToRetry = await MongoEvalItem.find(
       {
-        evalId: evaluationId,
+        evalId: evalId,
         $or: [
           // Items with failed status
           { status: EvaluationStatusEnum.error },
@@ -481,8 +468,8 @@ export class EvaluationTaskService {
       {
         $set: {
           status: EvaluationStatusEnum.queuing,
-          target_output: null,
-          evaluator_output: null,
+          targetOutput: null,
+          evaluatorOutput: null,
           finishTime: null,
           errorMessage: null
         },
@@ -494,9 +481,9 @@ export class EvaluationTaskService {
 
     // Batch resubmit to queue
     const jobs = itemsToRetry.map((item, index) => ({
-      name: `eval_item_batch_retry_${evaluationId}_${index}`,
+      name: `eval_item_batch_retry_${evalId}_${index}`,
       data: {
-        evalId: evaluationId,
+        evalId: evalId,
         evalItemId: item._id.toString()
       },
       opts: {
@@ -507,7 +494,7 @@ export class EvaluationTaskService {
     await evaluationItemQueue.addBulk(jobs);
 
     addLog.info(
-      `[Evaluation] Batch retry failed items: ${evaluationId}, affected count: ${itemsToRetry.length}`
+      `[Evaluation] Batch retry failed items: ${evalId}, affected count: ${itemsToRetry.length}`
     );
 
     return itemsToRetry.length;
@@ -528,76 +515,15 @@ export class EvaluationTaskService {
     return {
       item,
       dataItem: item.dataItem,
-      response: item.target_output?.actualOutput,
-      result: item.evaluator_output,
-      score: item.evaluator_output?.score
+      response: item.targetOutput?.actualOutput,
+      result: item.evaluatorOutput,
+      score: item.evaluatorOutput?.score
     };
-  }
-
-  // Cleanup hook function when deleting apps
-  static async deleteAppHook(appIds: string[]): Promise<void> {
-    // Find all evaluation tasks using these apps as workflow targets
-    const evalJobs = await MongoEvaluation.find(
-      {
-        'target.type': 'workflow',
-        'target.config.appId': { $in: appIds }
-      },
-      '_id status'
-    ).lean();
-
-    // Process each evaluation task
-    for (const evalJob of evalJobs) {
-      try {
-        const evaluationId = String(evalJob._id);
-
-        // Remove related tasks from queue
-        await Promise.all([
-          removeEvaluationTaskJob(evaluationId),
-          removeEvaluationItemJobs(evaluationId)
-        ]);
-
-        // If evaluation task is still running, update status to error (app deleted)
-        if (
-          [EvaluationStatusEnum.evaluating, EvaluationStatusEnum.queuing].includes(evalJob.status)
-        ) {
-          await MongoEvaluation.updateOne(
-            { _id: evalJob._id },
-            {
-              $set: {
-                status: EvaluationStatusEnum.error,
-                finishTime: new Date(),
-                errorMessage: 'App deleted'
-              }
-            }
-          );
-
-          // Stop all related evaluation items
-          await MongoEvalItem.updateMany(
-            {
-              evalId: evaluationId,
-              status: { $in: [EvaluationStatusEnum.queuing, EvaluationStatusEnum.evaluating] }
-            },
-            {
-              $set: {
-                status: EvaluationStatusEnum.error,
-                errorMessage: 'App deleted',
-                finishTime: new Date()
-              }
-            }
-          );
-        }
-
-        addLog.info(`[Evaluation] Cleanup evaluation task when app deleted: ${evaluationId}`);
-      } catch (error) {
-        addLog.error(`[Evaluation] Failed to cleanup evaluation task: ${evalJob._id}`, error);
-        // Continue processing other evaluations even if one fails
-      }
-    }
   }
 
   // Search evaluation items
   static async searchEvaluationItems(
-    evaluationId: string,
+    evalId: string,
     auth: AuthModeType,
     options: {
       status?: EvaluationStatusEnum;
@@ -611,12 +537,12 @@ export class EvaluationTaskService {
     items: EvaluationItemDisplayType[];
     total: number;
   }> {
-    await this.getEvaluation(evaluationId, auth);
+    await this.getEvaluation(evalId, auth);
 
     const { status, hasError, scoreRange, keyword, page = 1, pageSize = 20 } = options;
 
     // Build query conditions
-    const filter: any = { evalId: evaluationId };
+    const filter: any = { evalId: evalId };
 
     if (status !== undefined) {
       filter.status = status;
@@ -637,7 +563,7 @@ export class EvaluationTaskService {
         scoreFilter.$lte = scoreRange.max;
       }
       if (Object.keys(scoreFilter).length > 0) {
-        filter['evaluator_output.score'] = scoreFilter;
+        filter['evaluatorOutput.score'] = scoreFilter;
       }
     }
 
@@ -645,7 +571,7 @@ export class EvaluationTaskService {
       filter.$or = [
         { 'dataItem.userInput': { $regex: keyword, $options: 'i' } },
         { 'dataItem.expectedOutput': { $regex: keyword, $options: 'i' } },
-        { 'target_output.actualOutput': { $regex: keyword, $options: 'i' } }
+        { 'targetOutput.actualOutput': { $regex: keyword, $options: 'i' } }
       ];
     }
 
@@ -671,24 +597,24 @@ export class EvaluationTaskService {
 
   // Export evaluation item results
   static async exportEvaluationResults(
-    evaluationId: string,
+    evalId: string,
     auth: AuthModeType,
     format: 'csv' | 'json' = 'json'
   ): Promise<Buffer> {
-    await this.getEvaluation(evaluationId, auth);
+    await this.getEvaluation(evalId, auth);
 
-    const items = await MongoEvalItem.find({ evalId: evaluationId }).sort({ createTime: 1 }).lean();
+    const items = await MongoEvalItem.find({ evalId: evalId }).sort({ createTime: 1 }).lean();
 
     if (format === 'json') {
       const results = items.map((item) => ({
         itemId: item._id,
         userInput: item.dataItem?.userInput,
         expectedOutput: item.dataItem?.expectedOutput,
-        actualOutput: item.target_output?.actualOutput,
-        score: item.evaluator_output?.score,
+        actualOutput: item.targetOutput?.actualOutput,
+        score: item.evaluatorOutput?.score,
         status: item.status,
-        targetOutput: item.target_output,
-        evaluatorOutput: item.evaluator_output,
+        targetOutput: item.targetOutput,
+        evaluatorOutput: item.evaluatorOutput,
         errorMessage: item.errorMessage,
         finishTime: item.finishTime
       }));
@@ -718,8 +644,8 @@ export class EvaluationTaskService {
           item._id.toString(),
           `"${(item.dataItem?.userInput || '').replace(/"/g, '""')}"`,
           `"${(item.dataItem?.expectedOutput || '').replace(/"/g, '""')}"`,
-          `"${(item.target_output?.actualOutput || '').replace(/"/g, '""')}"`,
-          item.evaluator_output?.score || '',
+          `"${(item.targetOutput?.actualOutput || '').replace(/"/g, '""')}"`,
+          item.evaluatorOutput?.score || '',
           item.status || '',
           `"${(item.errorMessage || '').replace(/"/g, '""')}"`,
           item.finishTime || ''

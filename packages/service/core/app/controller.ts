@@ -7,7 +7,6 @@ import type { StoreNodeItemType } from '@fastgpt/global/core/workflow/type/node'
 import { encryptSecretValue, storeSecretValue } from '../../common/secret/utils';
 import { SystemToolInputTypeEnum } from '@fastgpt/global/core/app/systemTool/constants';
 import { type ClientSession } from '../../common/mongo';
-import { EvaluationTaskService } from '../evaluation/task';
 import { deleteChatFiles } from '../chat/controller';
 import { MongoChatItem } from '../chat/chatItemSchema';
 import { MongoChat } from '../chat/chatSchema';
@@ -144,10 +143,6 @@ export const onDelOneApp = async ({
   const deletedAppIds = apps
     .filter((app) => app.type !== AppTypeEnum.folder)
     .map((app) => String(app._id));
-
-  // 清理评估相关任务
-  const appIds = apps.map((app) => String(app._id));
-  await EvaluationTaskService.deleteAppHook(appIds);
 
   const del = async (session: ClientSession) => {
     for await (const app of apps) {

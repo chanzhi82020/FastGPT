@@ -1,17 +1,17 @@
 import type { ApiRequestProps, ApiResponseType } from '@fastgpt/service/type/next';
 import { NextAPI } from '@/service/middleware/entry';
 import { EvaluationTaskService } from '@fastgpt/service/core/evaluation/task';
-import type { ExportEvaluationItemsQuery } from '@fastgpt/global/core/evaluation/api';
+import type { ExportEvaluationItemsRequest } from '@fastgpt/global/core/evaluation/api';
 import { addLog } from '@fastgpt/service/common/system/log';
 
 async function handler(
-  req: ApiRequestProps<{}, ExportEvaluationItemsQuery>,
+  req: ApiRequestProps<{}, ExportEvaluationItemsRequest>,
   res: ApiResponseType<any>
 ) {
   try {
-    const { evaluationId, format = 'json' } = req.query;
+    const { evalId, format = 'json' } = req.query;
 
-    if (!evaluationId) {
+    if (!evalId) {
       return Promise.reject('Evaluation ID is required');
     }
 
@@ -20,7 +20,7 @@ async function handler(
     }
 
     const results = await EvaluationTaskService.exportEvaluationResults(
-      evaluationId,
+      evalId,
       {
         req,
         authToken: true
@@ -30,14 +30,14 @@ async function handler(
 
     if (format === 'csv') {
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-      res.setHeader('Content-Disposition', `attachment; filename=evaluation-${evaluationId}.csv`);
+      res.setHeader('Content-Disposition', `attachment; filename=evaluation-${evalId}.csv`);
     } else {
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
-      res.setHeader('Content-Disposition', `attachment; filename=evaluation-${evaluationId}.json`);
+      res.setHeader('Content-Disposition', `attachment; filename=evaluation-${evalId}.json`);
     }
 
     addLog.info('[Evaluation] Evaluation items exported successfully', {
-      evaluationId,
+      evalId,
       format,
       size: results.length
     });
@@ -46,7 +46,7 @@ async function handler(
     res.end();
   } catch (error) {
     addLog.error('[Evaluation] Failed to export evaluation items', {
-      evaluationId: req.query?.evaluationId,
+      evalId: req.query?.evalId,
       format: req.query?.format,
       error
     });

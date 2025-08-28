@@ -39,6 +39,10 @@ vi.mock('@fastgpt/service/core/ai/utils', () => ({
   removeDatasetCiteText: vi.fn((text) => text)
 }));
 
+vi.mock('@fastgpt/service/core/chat/saveChat', () => ({
+  saveChat: vi.fn()
+}));
+
 // Import mocked functions
 import { MongoApp } from '@fastgpt/service/core/app/schema';
 import { dispatchWorkFlow } from '@fastgpt/service/core/workflow/dispatch';
@@ -52,6 +56,13 @@ describe('WorkflowTarget - Workflow Only Support', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+
+    // Mock Date.now to ensure predictable responseTime
+    const mockStartTime = 1000000000000;
+    const mockEndTime = mockStartTime + 1500; // 1.5 seconds later
+    vi.spyOn(Date, 'now')
+      .mockReturnValueOnce(mockStartTime) // First call in execute()
+      .mockReturnValueOnce(mockEndTime); // Second call in execute()
 
     const config: WorkflowConfig = {
       appId: 'test-app-id',
@@ -89,7 +100,10 @@ describe('WorkflowTarget - Workflow Only Support', () => {
 
     (dispatchWorkFlow as any).mockResolvedValue({
       assistantResponses: [{ text: { content: 'The capital of France is Paris.' } }],
-      flowUsages: [{ totalPoints: 10 }]
+      flowUsages: [{ totalPoints: 10 }],
+      flowResponses: [],
+      system_memories: [],
+      durationSeconds: 1.5
     });
   });
 
@@ -98,7 +112,7 @@ describe('WorkflowTarget - Workflow Only Support', () => {
 
     expect(result.actualOutput).toBe('The capital of France is Paris.');
     expect(result.usage).toEqual([{ totalPoints: 10 }]);
-    expect(result.responseTime).toBeGreaterThan(0);
+    expect(result.responseTime).toBe(1500); // 1.5 seconds as mocked
 
     expect(dispatchWorkFlow).toHaveBeenCalledWith(
       expect.objectContaining({

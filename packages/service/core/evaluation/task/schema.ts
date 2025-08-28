@@ -99,7 +99,22 @@ export const EvaluationTaskSchema = new Schema({
   },
   finishTime: Date,
   avgScore: Number,
-  errorMessage: String
+  errorMessage: String,
+  // Statistical information
+  statistics: {
+    totalItems: {
+      type: Number,
+      default: 0
+    },
+    completedItems: {
+      type: Number,
+      default: 0
+    },
+    errorItems: {
+      type: Number,
+      default: 0
+    }
+  }
 });
 
 EvaluationTaskSchema.index({ teamId: 1 });
@@ -121,19 +136,35 @@ export const EvaluationItemSchema = new Schema({
   target: EvaluationTargetSchema,
   evaluator: EvaluationEvaluatorSchema, // Single evaluator configuration
   // Execution results
-  target_output: {
-    actualOutput: String,
-    retrievalContext: [String],
-    usage: Object,
-    responseTime: Number
+  targetOutput: {
+    type: Schema.Types.Mixed,
+    validate: {
+      validator: function (output: any) {
+        if (!output) return true; // Optional field
+        return (
+          typeof output.actualOutput === 'string' &&
+          typeof output.responseTime === 'number' &&
+          (!output.retrievalContext || Array.isArray(output.retrievalContext)) &&
+          (!output.usage || typeof output.usage === 'object')
+        );
+      },
+      message: 'targetOutput must conform to TargetOutput type'
+    }
   },
-  evaluator_output: {
-    // Single evaluator result
-    metricId: String,
-    metricName: String,
-    score: Number,
-    details: Object,
-    error: String
+  evaluatorOutput: {
+    type: Schema.Types.Mixed,
+    validate: {
+      validator: function (output: any) {
+        if (!output) return true; // Optional field
+        return (
+          typeof output.metricId === 'string' &&
+          typeof output.metricName === 'string' &&
+          typeof output.score === 'number' &&
+          (!output.details || typeof output.details === 'object')
+        );
+      },
+      message: 'evaluatorOutput must conform to MetricResult type'
+    }
   },
   status: {
     type: Number,

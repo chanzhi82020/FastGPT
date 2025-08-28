@@ -538,11 +538,11 @@ describe('End-to-End Evaluation System', () => {
           { _id: evalItem._id },
           {
             $set: {
-              target_output: {
+              targetOutput: {
                 actualOutput: targetResponse,
                 responseTime: 1000 // 模拟响应时间
               },
-              evaluator_output: evaluatorResult,
+              evaluatorOutput: evaluatorResult,
               status: 2, // completed
               finishTime: new Date()
             }
@@ -565,13 +565,13 @@ describe('End-to-End Evaluation System', () => {
 
       // 验证每个评估项都有结果
       completedItems.forEach((item, index) => {
-        expect(item.target_output?.actualOutput).toBeTruthy();
-        expect(item.evaluator_output?.score).toBeGreaterThan(0);
-        expect(item.evaluator_output).toBeTruthy(); // 单个评估器输出
+        expect(item.targetOutput?.actualOutput).toBeTruthy();
+        expect(item.evaluatorOutput?.score).toBeGreaterThan(0);
+        expect(item.evaluatorOutput).toBeTruthy(); // 单个评估器输出
         expect(item.finishTime).toBeTruthy();
 
         // 验证单个评估器结果结构
-        const evaluatorResult = item.evaluator_output;
+        const evaluatorResult = item.evaluatorOutput;
         if (evaluatorResult) {
           expect(evaluatorResult.metricId).toBeTruthy();
           expect(evaluatorResult.metricName).toBeTruthy();
@@ -583,8 +583,8 @@ describe('End-to-End Evaluation System', () => {
         console.log(`\n=== 评估项 ${index + 1} ===`);
         console.log(`问题: ${item.dataItem.userInput}`);
         console.log(`期望回答: ${item.dataItem.expectedOutput}`);
-        console.log(`实际回答: ${item.target_output?.actualOutput}`);
-        console.log(`综合分数: ${item.evaluator_output?.score}`);
+        console.log(`实际回答: ${item.targetOutput?.actualOutput}`);
+        console.log(`综合分数: ${item.evaluatorOutput?.score}`);
         console.log(
           '指标分数:',
           evaluatorResult ? `${evaluatorResult.metricName}: ${evaluatorResult.score}` : 'N/A'
@@ -593,7 +593,7 @@ describe('End-to-End Evaluation System', () => {
 
       // 计算并更新总体评估分数
       const totalAvgScore =
-        completedItems.reduce((sum, item) => sum + (item.evaluator_output?.score || 0), 0) /
+        completedItems.reduce((sum, item) => sum + (item.evaluatorOutput?.score || 0), 0) /
         completedItems.length;
 
       await MongoEvaluation.updateOne(

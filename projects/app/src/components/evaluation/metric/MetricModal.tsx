@@ -31,7 +31,8 @@ import AIModelSelector from '@/components/Select/AIModelSelector';
 import type {
   AiModelConfig,
   CreateMetricParams,
-  MetricDependency
+  MetricDependency,
+  EvaluationMetricSchemaType
 } from '@fastgpt/global/core/evaluation/type';
 
 const MetricModal: React.FC = () => {
@@ -97,7 +98,8 @@ const MetricModal: React.FC = () => {
   const { runAsync: saveMetric, loading: isSaving } = useRequest2(
     async (data: CreateMetricParams) => {
       if (isEdit) {
-        return await updateMetric(editingItem._id, data);
+        await updateMetric({ metricId: editingItem._id, ...data });
+        return { ...editingItem, ...data } as EvaluationMetricSchemaType;
       } else {
         return await createMetric(data);
       }

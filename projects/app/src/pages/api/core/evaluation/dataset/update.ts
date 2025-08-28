@@ -2,26 +2,27 @@ import type { ApiRequestProps } from '@fastgpt/service/type/next';
 import { NextAPI } from '@/service/middleware/entry';
 import { EvaluationDatasetService } from '@fastgpt/service/core/evaluation/dataset';
 import type {
-  DatasetUpdateQuery,
   UpdateDatasetRequest,
   UpdateDatasetResponse
 } from '@fastgpt/global/core/evaluation/api';
 import { addLog } from '@fastgpt/service/common/system/log';
+import { validateEvaluationParams } from '@fastgpt/global/core/evaluation/utils';
 
-async function handler(
-  req: ApiRequestProps<UpdateDatasetRequest, DatasetUpdateQuery>
-): Promise<UpdateDatasetResponse> {
+async function handler(req: ApiRequestProps<UpdateDatasetRequest>): Promise<UpdateDatasetResponse> {
   try {
-    const { id } = req.query;
-    const { name, description, columns } = req.body;
+    const { datasetId, name, description, columns } = req.body;
 
-    if (!id) {
+    if (!datasetId) {
       return Promise.reject('Dataset ID is required');
     }
 
-    // Validate update parameters
-    if (name !== undefined && !name?.trim()) {
-      return Promise.reject('Dataset name cannot be empty');
+    // Validate name and description with common validation utility
+    const paramValidation = validateEvaluationParams(
+      { name, description },
+      { namePrefix: 'Dataset' }
+    );
+    if (!paramValidation.success) {
+      return Promise.reject(paramValidation.message);
     }
 
     if (columns !== undefined) {
@@ -48,7 +49,7 @@ async function handler(
     }
 
     await EvaluationDatasetService.updateDataset(
-      id,
+      datasetId,
       {
         ...(name !== undefined && { name: name.trim() }),
         ...(description !== undefined && { description: description?.trim() }),
@@ -61,14 +62,14 @@ async function handler(
     );
 
     addLog.info('[Evaluation Dataset] Dataset updated successfully', {
-      datasetId: id,
+      datasetId: datasetId,
       updates: { name, description, columnCount: columns?.length }
     });
 
     return { message: 'Dataset updated successfully' };
   } catch (error) {
     addLog.error('[Evaluation Dataset] Failed to update dataset', {
-      datasetId: req.query.id,
+      datasetId: req.query.datasetId,
       error
     });
     return Promise.reject(error);

@@ -1,49 +1,52 @@
 import { DELETE, GET, POST, PUT } from '@/web/common/api/request';
 import type {
+  CreateEvaluationRequest,
+  CreateEvaluationResponse,
   ListEvaluationItemsRequest,
   ListEvaluationItemsResponse,
   ListEvaluationsRequest,
   ListEvaluationsResponse,
+  UpdateEvaluationRequest,
+  UpdateEvaluationResponse,
+  EvaluationDetailResponse,
+  DeleteEvaluationResponse,
+  StartEvaluationResponse,
+  StopEvaluationResponse,
+  EvaluationStatsResponse,
   RetryEvaluationItemRequest,
-  UpdateEvaluationItemRequest
+  RetryEvaluationItemResponse,
+  UpdateEvaluationItemRequest,
+  UpdateEvaluationItemResponse,
+  DeleteEvaluationItemResponse,
+  EvaluationItemDetailResponse,
+  RetryFailedItemsResponse
 } from '@fastgpt/global/core/evaluation/api';
-import type {
-  CreateEvaluationParams,
-  EvaluationSchemaType,
-  EvaluationItemSchemaType
-} from '@fastgpt/global/core/evaluation/type';
 
 // ==================== 评估任务管理 API ====================
 
-export const createEvaluation = (data: CreateEvaluationParams) =>
-  POST<EvaluationSchemaType>('/core/evaluation/task/create', data);
+export const createEvaluation = (data: CreateEvaluationRequest) =>
+  POST<CreateEvaluationResponse>('/core/evaluation/task/create', data);
 
 export const getEvaluationList = (data: ListEvaluationsRequest) =>
   POST<ListEvaluationsResponse>('/core/evaluation/task/list', data);
 
-export const getEvaluationDetail = (evaluationId: string) =>
-  GET<EvaluationSchemaType>(`/core/evaluation/task/detail?id=${evaluationId}`);
+export const getEvaluationDetail = (evalId: string) =>
+  GET<EvaluationDetailResponse>(`/core/evaluation/task/detail?evalId=${evalId}`);
 
-export const updateEvaluation = (evaluationId: string, data: Partial<CreateEvaluationParams>) =>
-  PUT<EvaluationSchemaType>(`/core/evaluation/task/update?id=${evaluationId}`, data);
+export const updateEvaluation = (data: UpdateEvaluationRequest) =>
+  PUT<UpdateEvaluationResponse>('/core/evaluation/task/update', data);
 
-export const deleteEvaluation = (data: { evalId: string }) =>
-  DELETE(`/core/evaluation/task/delete?id=${data.evalId}`);
+export const deleteEvaluation = (evalId: string) =>
+  DELETE<DeleteEvaluationResponse>(`/core/evaluation/task/delete?evalId=${evalId}`);
 
-export const startEvaluation = (evaluationId: string) =>
-  POST<{ message: string }>('/core/evaluation/task/start', { evaluationId });
+export const startEvaluation = (evalId: string) =>
+  POST<StartEvaluationResponse>('/core/evaluation/task/start', { evalId });
 
-export const stopEvaluation = (evaluationId: string) =>
-  POST<{ message: string }>('/core/evaluation/task/stop', { evaluationId });
+export const stopEvaluation = (evalId: string) =>
+  POST<StopEvaluationResponse>('/core/evaluation/task/stop', { evalId });
 
-export const getEvaluationStats = (evaluationId: string) =>
-  GET<{
-    totalCount: number;
-    completedCount: number;
-    errorCount: number;
-    avgScore?: number;
-    progress: number;
-  }>(`/core/evaluation/task/stats?id=${evaluationId}`);
+export const getEvaluationStats = (evalId: string) =>
+  GET<EvaluationStatsResponse>(`/core/evaluation/task/stats?evalId=${evalId}`);
 
 // ==================== 评估项目管理 API ====================
 
@@ -51,21 +54,23 @@ export const getEvalItemsList = (data: ListEvaluationItemsRequest) =>
   POST<ListEvaluationItemsResponse>('/core/evaluation/task/item/list', data);
 
 export const getEvalItemDetail = (evalItemId: string) =>
-  GET<EvaluationItemSchemaType>(`/core/evaluation/task/item/detail?id=${evalItemId}`);
+  GET<EvaluationItemDetailResponse>(`/core/evaluation/task/item/detail?evalItemId=${evalItemId}`);
 
 export const updateEvalItem = (data: UpdateEvaluationItemRequest) =>
-  POST('/core/evaluation/task/item/update', data);
+  POST<UpdateEvaluationItemResponse>('/core/evaluation/task/item/update', data);
 
-export const deleteEvalItem = (data: { evalItemId: string }) =>
-  DELETE(`/core/evaluation/task/item/delete?evalItemId=${data.evalItemId}`);
+export const deleteEvalItem = (evalItemId: string) =>
+  DELETE<DeleteEvaluationItemResponse>(
+    `/core/evaluation/task/item/delete?evalItemId=${evalItemId}`
+  );
 
 export const retryEvalItem = (data: RetryEvaluationItemRequest) =>
-  POST('/core/evaluation/task/item/retry', data);
+  POST<RetryEvaluationItemResponse>('/core/evaluation/task/item/retry', data);
 
-export const retryFailedItems = (evaluationId: string) =>
-  POST<{ message: string }>('/core/evaluation/task/retryFailed', { evaluationId });
+export const retryFailedItems = (evalId: string) =>
+  POST<RetryFailedItemsResponse>('/core/evaluation/task/retryFailed', { evalId });
 
-export const exportEvalItems = (evaluationId: string, format: 'csv' | 'json' = 'csv') =>
-  GET(`/core/evaluation/task/item/export?evalId=${evaluationId}&format=${format}`, {
+export const exportEvalItems = (evalId: string, format: 'csv' | 'json' = 'csv') =>
+  GET(`/core/evaluation/task/item/export?evalId=${evalId}&format=${format}`, {
     responseType: 'blob'
   });
