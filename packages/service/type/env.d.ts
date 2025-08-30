@@ -48,8 +48,8 @@ declare global {
       NEXT_PUBLIC_BASE_URL: string;
 
       // evaluations settings
-      EVAL_CONCURRENCY?: string;
-      EVAL_LINE_LIMIT?: string;
+      EVAL_TASK_CONCURRENCY?: string;
+      EVAL_ITEM_CONCURRENCY?: string;
     }
   }
 }
