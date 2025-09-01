@@ -7,6 +7,7 @@ import type {
 } from '@fastgpt/global/core/evaluation/api';
 import { addLog } from '@fastgpt/service/common/system/log';
 import { validateEvaluationParams } from '@fastgpt/global/core/evaluation/utils';
+import { validateEvaluationMetricCreate } from '@fastgpt/service/core/evaluation/common';
 
 async function handler(req: ApiRequestProps<CreateMetricRequest>): Promise<CreateMetricResponse> {
   try {
@@ -38,19 +39,22 @@ async function handler(req: ApiRequestProps<CreateMetricRequest>): Promise<Creat
         );
     }
 
-    const metric = await EvaluationMetricService.createMetric(
-      {
-        name: name.trim(),
-        description: description?.trim(),
-        type,
-        config,
-        dependencies
-      },
-      {
-        req,
-        authToken: true
-      }
-    );
+    // API层权限验证: 团队评估创建权限
+    const { teamId, tmbId } = await validateEvaluationMetricCreate({
+      req,
+      authToken: true
+    });
+
+    // Service层业务逻辑
+    const metric = await EvaluationMetricService.createMetric({
+      name: name.trim(),
+      description: description?.trim(),
+      type,
+      config,
+      dependencies,
+      teamId,
+      tmbId
+    });
 
     addLog.info('[Evaluation Metric] Metric created successfully', {
       metricId: metric._id,

@@ -29,11 +29,52 @@ vi.mock('@fastgpt/service/support/permission/teamLimit', () => ({
   checkTeamAIPoints: vi.fn()
 }));
 
-vi.mock('@fastgpt/service/support/permission/auth/common', () => ({
-  authCert: vi.fn().mockResolvedValue({
-    teamId: new Types.ObjectId(),
-    tmbId: new Types.ObjectId()
+// Mock the new evaluation permission validation functions
+vi.mock('@fastgpt/service/core/evaluation/common', () => ({
+  validateEvaluationTaskCreate: vi.fn().mockResolvedValue({
+    teamId: 'mock-team-id',
+    tmbId: 'mock-tmb-id'
+  }),
+  validateEvaluationTaskRead: vi.fn().mockResolvedValue({
+    teamId: 'mock-team-id',
+    tmbId: 'mock-tmb-id',
+    evaluation: {
+      _id: 'mock-eval-id',
+      name: 'Mock Evaluation',
+      status: 'completed'
+    }
+  }),
+  validateEvaluationTaskWrite: vi.fn().mockResolvedValue({
+    teamId: 'mock-team-id',
+    tmbId: 'mock-tmb-id'
+  }),
+  validateEvaluationTaskExecution: vi.fn().mockResolvedValue({
+    teamId: 'mock-team-id',
+    tmbId: 'mock-tmb-id'
+  }),
+  getEvaluationPermissionAggregation: vi.fn().mockResolvedValue({
+    teamId: 'mock-team-id',
+    tmbId: 'mock-tmb-id',
+    isOwner: true,
+    roleList: [],
+    myGroupMap: new Map(),
+    myOrgSet: new Set()
   })
+}));
+
+// Mock additional modules for permission handling
+vi.mock('@fastgpt/global/support/permission/evaluation/controller', () => ({
+  EvaluationPermission: vi.fn().mockImplementation(() => ({
+    hasReadPer: true
+  }))
+}));
+
+vi.mock('@fastgpt/global/support/permission/utils', () => ({
+  sumPer: vi.fn().mockReturnValue({})
+}));
+
+vi.mock('@fastgpt/service/support/user/utils', () => ({
+  addSourceMember: vi.fn().mockImplementation(({ list }) => Promise.resolve(list))
 }));
 
 vi.mock('@fastgpt/service/core/evaluation/target', () => ({
@@ -122,11 +163,9 @@ describe('Task API Handler Tests (Direct Function Calls)', () => {
           description: 'Test Description',
           datasetId: mockReq.body.datasetId,
           target: mockReq.body.target,
-          evaluators: mockReq.body.evaluators
-        }),
-        expect.objectContaining({
-          req: mockReq,
-          authToken: true
+          evaluators: mockReq.body.evaluators,
+          teamId: 'mock-team-id',
+          tmbId: 'mock-tmb-id'
         })
       );
       expect(result).toEqual(mockEvaluation);
@@ -226,7 +265,7 @@ describe('Task API Handler Tests (Direct Function Calls)', () => {
       } as any;
 
       const mockResult = {
-        evaluations: [mockEvaluation],
+        list: [mockEvaluation],
         total: 1
       };
 
@@ -235,16 +274,20 @@ describe('Task API Handler Tests (Direct Function Calls)', () => {
       const result = await listHandler(mockReq);
 
       expect(EvaluationTaskService.listEvaluations).toHaveBeenCalledWith(
-        expect.objectContaining({
-          req: mockReq,
-          authToken: true
-        }),
+        'mock-team-id',
         1,
         10,
-        undefined
+        undefined,
+        [],
+        'mock-tmb-id',
+        true
       );
       expect(result).toEqual({
-        list: mockResult.evaluations,
+        list: mockResult.list.map((item) => ({
+          ...item,
+          permission: { hasReadPer: true },
+          private: true
+        })),
         total: mockResult.total
       });
     });
@@ -258,19 +301,19 @@ describe('Task API Handler Tests (Direct Function Calls)', () => {
         }
       } as any;
 
-      const mockResult = { evaluations: [], total: 0 };
+      const mockResult = { list: [], total: 0 };
       (EvaluationTaskService.listEvaluations as any).mockResolvedValue(mockResult);
 
       await listHandler(mockReq);
 
       expect(EvaluationTaskService.listEvaluations).toHaveBeenCalledWith(
-        expect.objectContaining({
-          req: mockReq,
-          authToken: true
-        }),
+        'mock-team-id',
         2,
         20,
-        'test search'
+        'test search',
+        [],
+        'mock-tmb-id',
+        true
       );
     });
 
@@ -279,19 +322,19 @@ describe('Task API Handler Tests (Direct Function Calls)', () => {
         body: {}
       } as any;
 
-      const mockResult = { evaluations: [], total: 0 };
+      const mockResult = { list: [], total: 0 };
       (EvaluationTaskService.listEvaluations as any).mockResolvedValue(mockResult);
 
       await listHandler(mockReq);
 
       expect(EvaluationTaskService.listEvaluations).toHaveBeenCalledWith(
-        expect.objectContaining({
-          req: mockReq,
-          authToken: true
-        }),
-        1, // 默认页码
-        20, // 默认页面大小
-        undefined
+        'mock-team-id',
+        1,
+        20,
+        undefined,
+        [],
+        'mock-tmb-id',
+        true
       );
     });
   });
@@ -308,14 +351,14 @@ describe('Task API Handler Tests (Direct Function Calls)', () => {
 
       const result = await detailHandler(mockReq);
 
-      expect(EvaluationTaskService.getEvaluation).toHaveBeenCalledWith(
-        evalId,
+      // The detail handler no longer calls getEvaluation, it gets data from validateEvaluationTaskRead
+      expect(result).toEqual(
         expect.objectContaining({
-          req: mockReq,
-          authToken: true
+          _id: 'mock-eval-id',
+          name: 'Mock Evaluation',
+          status: 'completed'
         })
       );
-      expect(result).toEqual(mockEvaluation);
     });
 
     test('应该拒绝缺少ID的请求', async () => {
@@ -350,10 +393,7 @@ describe('Task API Handler Tests (Direct Function Calls)', () => {
           name: 'Updated Evaluation',
           description: 'Updated Description'
         }),
-        expect.objectContaining({
-          req: mockReq,
-          authToken: true
-        })
+        'mock-team-id'
       );
       expect(result).toEqual({ message: 'Evaluation updated successfully' });
     });
@@ -371,13 +411,7 @@ describe('Task API Handler Tests (Direct Function Calls)', () => {
 
       const result = await deleteHandler(mockReq);
 
-      expect(EvaluationTaskService.deleteEvaluation).toHaveBeenCalledWith(
-        evalId,
-        expect.objectContaining({
-          req: mockReq,
-          authToken: true
-        })
-      );
+      expect(EvaluationTaskService.deleteEvaluation).toHaveBeenCalledWith(evalId, 'mock-team-id');
       expect(result).toEqual({ message: 'Evaluation deleted successfully' });
     });
   });
@@ -394,13 +428,7 @@ describe('Task API Handler Tests (Direct Function Calls)', () => {
 
       const result = await startHandler(mockReq);
 
-      expect(EvaluationTaskService.startEvaluation).toHaveBeenCalledWith(
-        evalId,
-        expect.objectContaining({
-          req: mockReq,
-          authToken: true
-        })
-      );
+      expect(EvaluationTaskService.startEvaluation).toHaveBeenCalledWith(evalId, 'mock-team-id');
       expect(result).toEqual({ message: 'Evaluation started successfully' });
     });
 
@@ -426,13 +454,7 @@ describe('Task API Handler Tests (Direct Function Calls)', () => {
 
       const result = await stopHandler(mockReq);
 
-      expect(EvaluationTaskService.stopEvaluation).toHaveBeenCalledWith(
-        evalId,
-        expect.objectContaining({
-          req: mockReq,
-          authToken: true
-        })
-      );
+      expect(EvaluationTaskService.stopEvaluation).toHaveBeenCalledWith(evalId, 'mock-team-id');
       expect(result).toEqual({ message: 'Evaluation stopped successfully' });
     });
   });
@@ -458,13 +480,7 @@ describe('Task API Handler Tests (Direct Function Calls)', () => {
 
       const result = await statsHandler(mockReq);
 
-      expect(EvaluationTaskService.getEvaluationStats).toHaveBeenCalledWith(
-        evalId,
-        expect.objectContaining({
-          req: mockReq,
-          authToken: true
-        })
-      );
+      expect(EvaluationTaskService.getEvaluationStats).toHaveBeenCalledWith(evalId, 'mock-team-id');
       expect(result).toEqual(mockStats);
     });
 

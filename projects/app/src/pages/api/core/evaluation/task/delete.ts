@@ -6,6 +6,7 @@ import type {
   DeleteEvaluationResponse
 } from '@fastgpt/global/core/evaluation/api';
 import { addLog } from '@fastgpt/service/common/system/log';
+import { validateEvaluationTaskWrite } from '@fastgpt/service/core/evaluation/common';
 
 async function handler(
   req: ApiRequestProps<{}, DeleteEvaluationRequest>
@@ -17,10 +18,14 @@ async function handler(
       return Promise.reject('Evaluation ID is required');
     }
 
-    await EvaluationTaskService.deleteEvaluation(evalId, {
+    // API层权限验证: 评估任务写权限
+    const { teamId } = await validateEvaluationTaskWrite(evalId, {
       req,
       authToken: true
     });
+
+    // Service层业务逻辑
+    await EvaluationTaskService.deleteEvaluation(evalId, teamId);
 
     addLog.info('[Evaluation] Evaluation task deleted successfully', {
       evalId: evalId

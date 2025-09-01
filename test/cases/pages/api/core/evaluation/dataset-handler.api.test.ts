@@ -20,10 +20,27 @@ vi.mock('@fastgpt/service/core/evaluation/dataset', () => ({
   }
 }));
 
-vi.mock('@fastgpt/service/support/permission/auth/common', () => ({
-  authCert: vi.fn().mockResolvedValue({
-    teamId: new Types.ObjectId(),
-    tmbId: new Types.ObjectId()
+// Mock the new evaluation permission validation functions
+vi.mock('@fastgpt/service/core/evaluation/common', () => ({
+  validateEvaluationDatasetCreate: vi.fn().mockResolvedValue({
+    teamId: 'mock-team-id',
+    tmbId: 'mock-tmb-id'
+  }),
+  validateEvaluationDatasetRead: vi.fn().mockResolvedValue({
+    teamId: 'mock-team-id',
+    tmbId: 'mock-tmb-id'
+  }),
+  validateEvaluationDatasetWrite: vi.fn().mockResolvedValue({
+    teamId: 'mock-team-id',
+    tmbId: 'mock-tmb-id'
+  }),
+  getEvaluationPermissionAggregation: vi.fn().mockResolvedValue({
+    teamId: 'mock-team-id',
+    tmbId: 'mock-tmb-id',
+    isOwner: true,
+    roleList: [],
+    myGroupMap: new Map(),
+    myOrgSet: new Set()
   })
 }));
 
@@ -44,6 +61,21 @@ vi.mock('@fastgpt/service/common/file/multer', () => ({
 vi.mock('fs', () => ({
   readFileSync: vi.fn(),
   unlinkSync: vi.fn()
+}));
+
+// Mock additional modules for permission handling
+vi.mock('@fastgpt/global/support/permission/evaluation/controller', () => ({
+  EvaluationPermission: vi.fn().mockImplementation(() => ({
+    hasReadPer: true
+  }))
+}));
+
+vi.mock('@fastgpt/global/support/permission/utils', () => ({
+  sumPer: vi.fn().mockReturnValue({})
+}));
+
+vi.mock('@fastgpt/service/support/user/utils', () => ({
+  addSourceMember: vi.fn().mockImplementation(({ list }) => Promise.resolve(list))
 }));
 
 vi.mock('papaparse', () => ({
@@ -99,11 +131,9 @@ describe('Dataset API Handler Tests (Direct Function Calls)', () => {
           name: 'Test Dataset',
           description: 'Test Description',
           dataFormat: 'csv',
-          columns: mockReq.body.columns
-        }),
-        expect.objectContaining({
-          req: mockReq,
-          authToken: true
+          columns: mockReq.body.columns,
+          teamId: 'mock-team-id',
+          tmbId: 'mock-tmb-id'
         })
       );
       expect(result).toEqual(mockDataset);
@@ -174,7 +204,7 @@ describe('Dataset API Handler Tests (Direct Function Calls)', () => {
       } as any;
 
       const mockResult = {
-        datasets: [mockDataset],
+        list: [mockDataset],
         total: 1
       };
 
@@ -183,16 +213,20 @@ describe('Dataset API Handler Tests (Direct Function Calls)', () => {
       const result = await listHandler(mockReq);
 
       expect(EvaluationDatasetService.listDatasets).toHaveBeenCalledWith(
-        expect.objectContaining({
-          req: mockReq,
-          authToken: true
-        }),
+        'mock-team-id',
         1,
         10,
-        undefined
+        undefined,
+        [],
+        'mock-tmb-id',
+        true
       );
       expect(result).toEqual({
-        list: mockResult.datasets,
+        list: mockResult.list.map((item) => ({
+          ...item,
+          permission: { hasReadPer: true },
+          private: true
+        })),
         total: mockResult.total
       });
     });
@@ -202,19 +236,19 @@ describe('Dataset API Handler Tests (Direct Function Calls)', () => {
         body: { pageNum: 1, pageSize: 10, searchKey: 'test search' }
       } as any;
 
-      const mockResult = { datasets: [], total: 0 };
+      const mockResult = { list: [], total: 0 };
       (EvaluationDatasetService.listDatasets as any).mockResolvedValue(mockResult);
 
       await listHandler(mockReq);
 
       expect(EvaluationDatasetService.listDatasets).toHaveBeenCalledWith(
-        expect.objectContaining({
-          req: mockReq,
-          authToken: true
-        }),
+        'mock-team-id',
         1,
         10,
-        'test search'
+        'test search',
+        [],
+        'mock-tmb-id',
+        true
       );
     });
 
@@ -246,13 +280,7 @@ describe('Dataset API Handler Tests (Direct Function Calls)', () => {
 
       const result = await detailHandler(mockReq);
 
-      expect(EvaluationDatasetService.getDataset).toHaveBeenCalledWith(
-        datasetId,
-        expect.objectContaining({
-          req: mockReq,
-          authToken: true
-        })
-      );
+      expect(EvaluationDatasetService.getDataset).toHaveBeenCalledWith(datasetId, 'mock-team-id');
       expect(result).toEqual(mockDataset);
     });
 
@@ -286,10 +314,7 @@ describe('Dataset API Handler Tests (Direct Function Calls)', () => {
           name: 'Updated Dataset',
           description: 'Updated Description'
         }),
-        expect.objectContaining({
-          req: mockReq,
-          authToken: true
-        })
+        'mock-team-id'
       );
       expect(result).toEqual({ message: 'Dataset updated successfully' });
     });
@@ -308,10 +333,7 @@ describe('Dataset API Handler Tests (Direct Function Calls)', () => {
 
       expect(EvaluationDatasetService.deleteDataset).toHaveBeenCalledWith(
         datasetId,
-        expect.objectContaining({
-          req: mockReq,
-          authToken: true
-        })
+        'mock-team-id'
       );
       expect(result).toEqual({ message: 'Dataset deleted successfully' });
     });

@@ -6,7 +6,6 @@ import type {
   DatasetColumn,
   DatasetItem
 } from '@fastgpt/global/core/evaluation/type';
-import type { AuthModeType } from '@fastgpt/service/support/permission/type';
 import { Types } from '@fastgpt/service/common/mongo';
 
 vi.mock('@fastgpt/service/support/permission/controller', () => ({
@@ -18,13 +17,11 @@ import { parseHeaderCert } from '@fastgpt/service/support/permission/controller'
 describe('EvaluationDatasetService', () => {
   let teamId: string;
   let tmbId: string;
-  let auth: AuthModeType;
 
   beforeAll(async () => {
     // 数据库连接在 setup.ts 中处理
     teamId = '507f1f77bcf86cd799439011';
     tmbId = '507f1f77bcf86cd799439012';
-    auth = { req: {} as any, authToken: true };
   });
 
   afterAll(async () => {
@@ -58,7 +55,7 @@ describe('EvaluationDatasetService', () => {
         ]
       };
 
-      const dataset = await EvaluationDatasetService.createDataset(params, auth);
+      const dataset = await EvaluationDatasetService.createDataset({ ...params, teamId, tmbId });
 
       expect(dataset.name).toBe(params.name);
       expect(dataset.description).toBe(params.description);
@@ -86,7 +83,7 @@ describe('EvaluationDatasetService', () => {
       };
 
       await expect(
-        EvaluationDatasetService.createDataset(invalidParams as any, auth)
+        EvaluationDatasetService.createDataset({ ...(invalidParams as any), teamId, tmbId })
       ).rejects.toThrow();
     });
   });
@@ -100,9 +97,9 @@ describe('EvaluationDatasetService', () => {
         dataFormat: 'csv',
         columns: [{ name: 'userInput', type: 'string', required: true, description: '测试问题' }]
       };
-      const created = await EvaluationDatasetService.createDataset(params, auth);
+      const created = await EvaluationDatasetService.createDataset({ ...params, teamId, tmbId });
 
-      const dataset = await EvaluationDatasetService.getDataset(created._id, auth);
+      const dataset = await EvaluationDatasetService.getDataset(created._id, teamId);
 
       expect(dataset._id.toString()).toBe(created._id.toString());
       expect(dataset.name).toBe('Test Dataset for Get');
@@ -111,7 +108,7 @@ describe('EvaluationDatasetService', () => {
     test('数据集不存在时应该抛出错误', async () => {
       const nonExistentId = new Types.ObjectId().toString();
 
-      await expect(EvaluationDatasetService.getDataset(nonExistentId, auth)).rejects.toThrow(
+      await expect(EvaluationDatasetService.getDataset(nonExistentId, teamId)).rejects.toThrow(
         'Dataset not found'
       );
     });
@@ -126,7 +123,7 @@ describe('EvaluationDatasetService', () => {
         dataFormat: 'csv',
         columns: [{ name: 'userInput', type: 'string', required: true, description: '测试问题' }]
       };
-      const created = await EvaluationDatasetService.createDataset(params, auth);
+      const created = await EvaluationDatasetService.createDataset({ ...params, teamId, tmbId });
 
       const updates = {
         name: 'Updated Test Dataset',
@@ -137,9 +134,9 @@ describe('EvaluationDatasetService', () => {
         ]
       };
 
-      await EvaluationDatasetService.updateDataset(created._id, updates, auth);
+      await EvaluationDatasetService.updateDataset(created._id, updates, teamId);
 
-      const updatedDataset = await EvaluationDatasetService.getDataset(created._id, auth);
+      const updatedDataset = await EvaluationDatasetService.getDataset(created._id, teamId);
       expect(updatedDataset.name).toBe(updates.name);
       expect(updatedDataset.description).toBe(updates.description);
     });
@@ -154,13 +151,21 @@ describe('EvaluationDatasetService', () => {
         dataFormat: 'csv',
         columns: [{ name: 'userInput', type: 'string', required: true, description: '测试问题' }]
       };
-      await EvaluationDatasetService.createDataset(params, auth);
+      await EvaluationDatasetService.createDataset({ ...params, teamId, tmbId });
 
-      const result = await EvaluationDatasetService.listDatasets(auth, 1, 10);
+      const result = await EvaluationDatasetService.listDatasets(
+        teamId,
+        1,
+        10,
+        undefined,
+        undefined,
+        tmbId,
+        true
+      );
 
-      expect(Array.isArray(result.datasets)).toBe(true);
+      expect(Array.isArray(result.list)).toBe(true);
       expect(typeof result.total).toBe('number');
-      expect(result.datasets.length).toBeGreaterThanOrEqual(1);
+      expect(result.list.length).toBeGreaterThanOrEqual(1);
     });
 
     test('应该支持搜索功能', async () => {
@@ -171,12 +176,20 @@ describe('EvaluationDatasetService', () => {
         dataFormat: 'csv',
         columns: [{ name: 'userInput', type: 'string', required: true, description: '测试问题' }]
       };
-      await EvaluationDatasetService.createDataset(params, auth);
+      await EvaluationDatasetService.createDataset({ ...params, teamId, tmbId });
 
-      const result = await EvaluationDatasetService.listDatasets(auth, 1, 10, 'Searchable');
+      const result = await EvaluationDatasetService.listDatasets(
+        teamId,
+        1,
+        10,
+        'Searchable',
+        undefined,
+        tmbId,
+        true
+      );
 
-      expect(Array.isArray(result.datasets)).toBe(true);
-      expect(result.datasets.some((dataset) => dataset.name.includes('Searchable'))).toBe(true);
+      expect(Array.isArray(result.list)).toBe(true);
+      expect(result.list.some((dataset) => dataset.name.includes('Searchable'))).toBe(true);
     });
   });
 
@@ -253,20 +266,20 @@ describe('EvaluationDatasetService', () => {
           { name: 'expectedOutput', type: 'string', required: true, description: '期望回答' }
         ]
       };
-      const created = await EvaluationDatasetService.createDataset(params, auth);
+      const created = await EvaluationDatasetService.createDataset({ ...params, teamId, tmbId });
 
       const testData: DatasetItem[] = [
         { userInput: 'Test userInput 1', expectedOutput: 'Test answer 1' },
         { userInput: 'Test userInput 2', expectedOutput: 'Test answer 2' }
       ];
 
-      const result = await EvaluationDatasetService.importData(created._id, testData, auth);
+      const result = await EvaluationDatasetService.importData(created._id, testData, teamId);
 
       expect(result.success).toBe(true);
       expect(result.importedCount).toBe(2);
 
       // 验证数据确实被导入
-      const dataset = await EvaluationDatasetService.getDataset(created._id, auth);
+      const dataset = await EvaluationDatasetService.getDataset(created._id, teamId);
       expect(dataset.dataItems).toHaveLength(2);
     });
 
@@ -285,12 +298,12 @@ describe('EvaluationDatasetService', () => {
           { name: 'expectedOutput', type: 'string', required: true, description: '期望回答' }
         ]
       };
-      const created = await EvaluationDatasetService.createDataset(params, auth);
+      const created = await EvaluationDatasetService.createDataset({ ...params, teamId, tmbId });
 
       const result = await EvaluationDatasetService.importData(
         created._id,
         invalidData as any,
-        auth
+        teamId
       );
 
       expect(result.success).toBe(false);
@@ -311,16 +324,16 @@ describe('EvaluationDatasetService', () => {
           { name: 'expectedOutput', type: 'string', required: true, description: '期望回答' }
         ]
       };
-      const created = await EvaluationDatasetService.createDataset(params, auth);
+      const created = await EvaluationDatasetService.createDataset({ ...params, teamId, tmbId });
 
       // 导入一些数据
       const testData: DatasetItem[] = [
         { userInput: 'Test userInput', expectedOutput: 'Test response' },
         { userInput: 'Test userInput 2', expectedOutput: 'Test response 2' }
       ];
-      await EvaluationDatasetService.importData(created._id, testData, auth);
+      await EvaluationDatasetService.importData(created._id, testData, teamId);
 
-      const buffer = await EvaluationDatasetService.exportData(created._id, 'json', auth);
+      const buffer = await EvaluationDatasetService.exportData(created._id, 'json', teamId);
       const data = JSON.parse(buffer.toString());
 
       expect(Array.isArray(data)).toBe(true);
@@ -338,15 +351,15 @@ describe('EvaluationDatasetService', () => {
           { name: 'expectedOutput', type: 'string', required: true, description: '期望回答' }
         ]
       };
-      const created = await EvaluationDatasetService.createDataset(params, auth);
+      const created = await EvaluationDatasetService.createDataset({ ...params, teamId, tmbId });
 
       // 导入一些数据
       const testData: DatasetItem[] = [
         { userInput: 'Test userInput CSV', expectedOutput: 'Test response CSV' }
       ];
-      await EvaluationDatasetService.importData(created._id, testData, auth);
+      await EvaluationDatasetService.importData(created._id, testData, teamId);
 
-      const buffer = await EvaluationDatasetService.exportData(created._id, 'csv', auth);
+      const buffer = await EvaluationDatasetService.exportData(created._id, 'csv', teamId);
       const csvContent = buffer.toString();
 
       expect(csvContent.includes('userInput,expectedOutput')).toBe(true);
@@ -363,11 +376,11 @@ describe('EvaluationDatasetService', () => {
         dataFormat: 'csv',
         columns: [{ name: 'userInput', type: 'string', required: true, description: '测试问题' }]
       };
-      const created = await EvaluationDatasetService.createDataset(params, auth);
+      const created = await EvaluationDatasetService.createDataset({ ...params, teamId, tmbId });
 
-      await EvaluationDatasetService.deleteDataset(created._id, auth);
+      await EvaluationDatasetService.deleteDataset(created._id, teamId);
 
-      await expect(EvaluationDatasetService.getDataset(created._id, auth)).rejects.toThrow(
+      await expect(EvaluationDatasetService.getDataset(created._id, teamId)).rejects.toThrow(
         'Dataset not found'
       );
     });

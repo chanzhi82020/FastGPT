@@ -9,25 +9,20 @@ import type {
   DatasetItem
 } from '@fastgpt/global/core/evaluation/type';
 import { Types } from 'mongoose';
-import type { AuthModeType } from '../../../support/permission/type';
-import {
-  validateResourceAccess,
-  validateResourceCreate,
-  validateListAccess,
-  checkUpdateResult,
-  checkDeleteResult
-} from '../common';
+import { checkUpdateResult, checkDeleteResult } from '../common';
 import Papa from 'papaparse';
 
 export class EvaluationDatasetService {
   static async createDataset(
-    params: CreateDatasetParams,
-    auth: AuthModeType
+    params: CreateDatasetParams & {
+      teamId: string;
+      tmbId: string;
+    }
   ): Promise<EvaluationDatasetSchemaType> {
-    const { teamId, tmbId } = await validateResourceCreate(auth);
+    const { teamId, tmbId, ...datasetParams } = params;
 
     const dataset = await MongoEvalDataset.create({
-      ...params,
+      ...datasetParams,
       teamId,
       tmbId,
       dataItems: []
@@ -36,20 +31,14 @@ export class EvaluationDatasetService {
     return dataset.toObject();
   }
 
-  static async getDataset(
-    datasetId: string,
-    auth: AuthModeType
-  ): Promise<EvaluationDatasetSchemaType> {
-    const { resourceFilter, notFoundError } = await validateResourceAccess(
-      datasetId,
-      auth,
-      'Dataset'
-    );
-
-    const dataset = await MongoEvalDataset.findOne(resourceFilter).lean();
+  static async getDataset(datasetId: string, teamId: string): Promise<EvaluationDatasetSchemaType> {
+    const dataset = await MongoEvalDataset.findOne({
+      _id: new Types.ObjectId(datasetId),
+      teamId: new Types.ObjectId(teamId)
+    }).lean();
 
     if (!dataset) {
-      throw new Error(notFoundError);
+      throw new Error('Dataset not found');
     }
 
     return dataset;
@@ -58,40 +47,73 @@ export class EvaluationDatasetService {
   static async updateDataset(
     datasetId: string,
     updates: UpdateDatasetParams,
-    auth: AuthModeType
+    teamId: string
   ): Promise<void> {
-    const { resourceFilter } = await validateResourceAccess(datasetId, auth, 'Dataset');
-
-    const result = await MongoEvalDataset.updateOne(resourceFilter, { $set: updates });
+    const result = await MongoEvalDataset.updateOne(
+      { _id: new Types.ObjectId(datasetId), teamId: new Types.ObjectId(teamId) },
+      { $set: updates }
+    );
 
     checkUpdateResult(result, 'Dataset');
   }
 
-  static async deleteDataset(datasetId: string, auth: AuthModeType): Promise<void> {
-    const { resourceFilter } = await validateResourceAccess(datasetId, auth, 'Dataset');
-
-    const result = await MongoEvalDataset.deleteOne(resourceFilter);
+  static async deleteDataset(datasetId: string, teamId: string): Promise<void> {
+    const result = await MongoEvalDataset.deleteOne({
+      _id: new Types.ObjectId(datasetId),
+      teamId: new Types.ObjectId(teamId)
+    });
 
     checkDeleteResult(result, 'Dataset');
   }
 
   static async listDatasets(
-    auth: AuthModeType,
+    teamId: string,
     page: number = 1,
     pageSize: number = 20,
-    searchKey?: string
+    searchKey?: string,
+    accessibleIds?: string[],
+    tmbId?: string,
+    isOwner: boolean = false
   ): Promise<{
-    datasets: EvaluationDatasetSchemaType[];
+    list: any[];
     total: number;
   }> {
-    const { filter, skip, limit, sort } = await validateListAccess(auth, searchKey, page, pageSize);
+    // Service层专注业务逻辑 - 权限聚合已在API层处理
+
+    // Build basic filter and pagination
+    const filter: any = { teamId: new Types.ObjectId(teamId) };
+    if (searchKey) {
+      filter.$or = [
+        { name: { $regex: searchKey, $options: 'i' } },
+        { description: { $regex: searchKey, $options: 'i' } }
+      ];
+    }
+    const skip = (page - 1) * pageSize;
+    const limit = pageSize;
+    const sort = { createTime: -1 as const };
+
+    // If not owner, filter by accessible resources
+    let finalFilter = filter;
+    if (!isOwner && accessibleIds) {
+      finalFilter = {
+        ...filter,
+        $or: [
+          { _id: { $in: accessibleIds.map((id) => new Types.ObjectId(id)) } },
+          ...(tmbId ? [{ tmbId: new Types.ObjectId(tmbId) }] : []) // Own datasets
+        ]
+      };
+    }
 
     const [datasets, total] = await Promise.all([
-      MongoEvalDataset.find(filter).sort(sort).skip(skip).limit(limit).lean(),
-      MongoEvalDataset.countDocuments(filter)
+      MongoEvalDataset.find(finalFilter).sort(sort).skip(skip).limit(limit).lean(),
+      MongoEvalDataset.countDocuments(finalFilter)
     ]);
 
-    return { datasets, total };
+    // Return raw data - permissions will be handled in API layer
+    return {
+      list: datasets,
+      total
+    };
   }
 
   static async validateDataFormat(
@@ -235,12 +257,12 @@ export class EvaluationDatasetService {
     fileContent: Buffer,
     fileName: string,
     mimeType: string,
-    auth: AuthModeType
+    teamId: string
   ): Promise<ImportResult> {
     try {
       const parsedData = await this.parseFileContent(fileContent, fileName, mimeType);
 
-      return await this.importData(datasetId, parsedData, auth);
+      return await this.importData(datasetId, parsedData, teamId);
     } catch (error) {
       return {
         success: false,
@@ -253,19 +275,16 @@ export class EvaluationDatasetService {
   static async importData(
     datasetId: string,
     data: DatasetItem[],
-    auth: AuthModeType
+    teamId: string
   ): Promise<ImportResult> {
     try {
-      const { resourceFilter, notFoundError } = await validateResourceAccess(
-        datasetId,
-        auth,
-        'Dataset'
-      );
-
-      const dataset = await MongoEvalDataset.findOne(resourceFilter);
+      const dataset = await MongoEvalDataset.findOne({
+        _id: new Types.ObjectId(datasetId),
+        teamId: new Types.ObjectId(teamId)
+      });
 
       if (!dataset) {
-        throw new Error(notFoundError);
+        throw new Error('Dataset not found');
       }
 
       const validation = await this.validateDataFormat(data, dataset.columns);
@@ -304,9 +323,9 @@ export class EvaluationDatasetService {
   static async exportData(
     datasetId: string,
     format: 'csv' | 'json',
-    auth: AuthModeType
+    teamId: string
   ): Promise<Buffer> {
-    const dataset = await this.getDataset(datasetId, auth);
+    const dataset = await this.getDataset(datasetId, teamId);
 
     if (format === 'json') {
       return Buffer.from(JSON.stringify(dataset.dataItems, null, 2));

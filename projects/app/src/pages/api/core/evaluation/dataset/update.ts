@@ -7,6 +7,7 @@ import type {
 } from '@fastgpt/global/core/evaluation/api';
 import { addLog } from '@fastgpt/service/common/system/log';
 import { validateEvaluationParams } from '@fastgpt/global/core/evaluation/utils';
+import { validateEvaluationDatasetWrite } from '@fastgpt/service/core/evaluation/common';
 
 async function handler(req: ApiRequestProps<UpdateDatasetRequest>): Promise<UpdateDatasetResponse> {
   try {
@@ -48,6 +49,13 @@ async function handler(req: ApiRequestProps<UpdateDatasetRequest>): Promise<Upda
       }
     }
 
+    // API层权限验证: 评估数据集写权限
+    const { teamId } = await validateEvaluationDatasetWrite(datasetId, {
+      req,
+      authToken: true
+    });
+
+    // Service层业务逻辑
     await EvaluationDatasetService.updateDataset(
       datasetId,
       {
@@ -55,10 +63,7 @@ async function handler(req: ApiRequestProps<UpdateDatasetRequest>): Promise<Upda
         ...(description !== undefined && { description: description?.trim() }),
         ...(columns !== undefined && { columns })
       },
-      {
-        req,
-        authToken: true
-      }
+      teamId
     );
 
     addLog.info('[Evaluation Dataset] Dataset updated successfully', {

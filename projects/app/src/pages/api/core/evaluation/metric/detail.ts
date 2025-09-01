@@ -6,6 +6,7 @@ import type {
   MetricDetailResponse
 } from '@fastgpt/global/core/evaluation/api';
 import { addLog } from '@fastgpt/service/common/system/log';
+import { validateEvaluationMetricRead } from '@fastgpt/service/core/evaluation/common';
 
 async function handler(
   req: ApiRequestProps<{}, MetricDetailRequest>
@@ -17,10 +18,14 @@ async function handler(
       return Promise.reject('Metric ID is required');
     }
 
-    const metric = await EvaluationMetricService.getMetric(metricId, {
+    // API层权限验证: 评估指标读权限
+    const { teamId } = await validateEvaluationMetricRead(metricId, {
       req,
       authToken: true
     });
+
+    // Service层业务逻辑
+    const metric = await EvaluationMetricService.getMetric(metricId, teamId);
 
     addLog.info('[Evaluation Metric] Metric details retrieved successfully', {
       metricId: metricId,

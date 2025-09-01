@@ -26,11 +26,43 @@ vi.mock('@fastgpt/service/core/evaluation/evaluator', () => ({
   })
 }));
 
-vi.mock('@fastgpt/service/support/permission/auth/common', () => ({
-  authCert: vi.fn().mockResolvedValue({
-    teamId: new Types.ObjectId(),
-    tmbId: new Types.ObjectId()
+// Mock the new evaluation permission validation functions
+vi.mock('@fastgpt/service/core/evaluation/common', () => ({
+  validateEvaluationMetricCreate: vi.fn().mockResolvedValue({
+    teamId: 'mock-team-id',
+    tmbId: 'mock-tmb-id'
+  }),
+  validateEvaluationMetricRead: vi.fn().mockResolvedValue({
+    teamId: 'mock-team-id',
+    tmbId: 'mock-tmb-id'
+  }),
+  validateEvaluationMetricWrite: vi.fn().mockResolvedValue({
+    teamId: 'mock-team-id',
+    tmbId: 'mock-tmb-id'
+  }),
+  getEvaluationPermissionAggregation: vi.fn().mockResolvedValue({
+    teamId: 'mock-team-id',
+    tmbId: 'mock-tmb-id',
+    isOwner: true,
+    roleList: [],
+    myGroupMap: new Map(),
+    myOrgSet: new Set()
   })
+}));
+
+// Mock additional modules for permission handling
+vi.mock('@fastgpt/global/support/permission/evaluation/controller', () => ({
+  EvaluationPermission: vi.fn().mockImplementation(() => ({
+    hasReadPer: true
+  }))
+}));
+
+vi.mock('@fastgpt/global/support/permission/utils', () => ({
+  sumPer: vi.fn().mockReturnValue({})
+}));
+
+vi.mock('@fastgpt/service/support/user/utils', () => ({
+  addSourceMember: vi.fn().mockImplementation(({ list }) => Promise.resolve(list))
 }));
 
 vi.mock('@fastgpt/service/common/system/log', () => ({
@@ -94,11 +126,9 @@ describe('Metric API Handler Tests (Direct Function Calls)', () => {
           name: 'Test AI Model Metric',
           description: 'Test Description',
           type: EvaluationMetricTypeEnum.aiModel,
-          config: mockReq.body.config
-        }),
-        expect.objectContaining({
-          req: mockReq,
-          authToken: true
+          config: mockReq.body.config,
+          teamId: 'mock-team-id',
+          tmbId: 'mock-tmb-id'
         })
       );
       expect(result).toEqual(mockMetric);
@@ -203,7 +233,7 @@ describe('Metric API Handler Tests (Direct Function Calls)', () => {
       } as any;
 
       const mockResult = {
-        metrics: [mockMetric],
+        list: [mockMetric],
         total: 1
       };
 
@@ -212,16 +242,20 @@ describe('Metric API Handler Tests (Direct Function Calls)', () => {
       const result = await listHandler(mockReq);
 
       expect(EvaluationMetricService.listMetrics).toHaveBeenCalledWith(
-        expect.objectContaining({
-          req: mockReq,
-          authToken: true
-        }),
+        'mock-team-id',
         1,
         10,
-        undefined
+        undefined,
+        [],
+        'mock-tmb-id',
+        true
       );
       expect(result).toEqual({
-        list: mockResult.metrics,
+        list: mockResult.list.map((item) => ({
+          ...item,
+          permission: { hasReadPer: true },
+          private: true
+        })),
         total: mockResult.total
       });
     });
@@ -235,19 +269,19 @@ describe('Metric API Handler Tests (Direct Function Calls)', () => {
         }
       } as any;
 
-      const mockResult = { metrics: [], total: 0 };
+      const mockResult = { list: [], total: 0 };
       (EvaluationMetricService.listMetrics as any).mockResolvedValue(mockResult);
 
       await listHandler(mockReq);
 
       expect(EvaluationMetricService.listMetrics).toHaveBeenCalledWith(
-        expect.objectContaining({
-          req: mockReq,
-          authToken: true
-        }),
+        'mock-team-id',
         1,
         10,
-        'test search'
+        'test search',
+        [],
+        'mock-tmb-id',
+        true
       );
     });
   });
@@ -265,10 +299,7 @@ describe('Metric API Handler Tests (Direct Function Calls)', () => {
 
       expect(EvaluationMetricService.getMetric).toHaveBeenCalledWith(
         metricId,
-        expect.objectContaining({
-          req: mockReq,
-          authToken: true
-        })
+        expect.any(String) // teamId
       );
       expect(result).toEqual(mockMetric);
     });
@@ -308,10 +339,7 @@ describe('Metric API Handler Tests (Direct Function Calls)', () => {
           description: 'Updated Description',
           config: mockReq.body.config
         }),
-        expect.objectContaining({
-          req: mockReq,
-          authToken: true
-        })
+        expect.any(String) // teamId
       );
       expect(result).toEqual({ message: 'Metric updated successfully' });
     });
@@ -330,10 +358,7 @@ describe('Metric API Handler Tests (Direct Function Calls)', () => {
 
       expect(EvaluationMetricService.deleteMetric).toHaveBeenCalledWith(
         metricId,
-        expect.objectContaining({
-          req: mockReq,
-          authToken: true
-        })
+        expect.any(String) // teamId
       );
       expect(result).toEqual({ message: 'Metric deleted successfully' });
     });
@@ -373,10 +398,7 @@ describe('Metric API Handler Tests (Direct Function Calls)', () => {
 
       expect(EvaluationMetricService.getMetric).toHaveBeenCalledWith(
         mockReq.body.metricId,
-        expect.objectContaining({
-          req: mockReq,
-          authToken: true
-        })
+        expect.any(String) // teamId
       );
       expect(createEvaluatorInstance).toHaveBeenCalledWith({
         metric: mockMetric,

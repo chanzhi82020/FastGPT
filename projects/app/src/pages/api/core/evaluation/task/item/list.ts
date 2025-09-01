@@ -6,6 +6,7 @@ import type {
   ListEvaluationItemsResponse
 } from '@fastgpt/global/core/evaluation/api';
 import { addLog } from '@fastgpt/service/common/system/log';
+import { validateEvaluationTaskRead } from '@fastgpt/service/core/evaluation/common';
 
 async function handler(
   req: ApiRequestProps<ListEvaluationItemsRequest>
@@ -28,12 +29,16 @@ async function handler(
       return Promise.reject('Invalid page size (1-100)');
     }
 
+    // API层权限验证: 评估任务读权限
+    const { teamId } = await validateEvaluationTaskRead(evalId, {
+      req,
+      authToken: true
+    });
+
+    // Service层业务逻辑
     const result = await EvaluationTaskService.listEvaluationItems(
       evalId,
-      {
-        req,
-        authToken: true
-      },
+      teamId,
       pageNumInt,
       pageSizeInt
     );

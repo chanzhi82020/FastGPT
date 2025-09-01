@@ -10,7 +10,6 @@ import type {
   EvaluationTaskJobData,
   EvaluationItemJobData
 } from '@fastgpt/global/core/evaluation/type';
-import type { AuthModeType } from '@fastgpt/service/support/permission/type';
 import { EvaluationStatusEnum } from '@fastgpt/global/core/evaluation/constants';
 import { Types } from '@fastgpt/service/common/mongo';
 import { TeamErrEnum } from '@fastgpt/global/common/error/code/team';
@@ -75,13 +74,11 @@ describe('EvaluationTaskService', () => {
   let target: EvalTarget;
   let metricId: string;
   let evaluators: EvaluatorSchema[];
-  let auth: AuthModeType;
 
   beforeAll(async () => {
     // 数据库连接在 setup.ts 中处理
     teamId = '507f1f77bcf86cd799439011';
     tmbId = '507f1f77bcf86cd799439012';
-    auth = { req: {} as any, authToken: true };
 
     // 创建测试数据
     const dataset = await MongoEvalDataset.create({
@@ -178,7 +175,7 @@ describe('EvaluationTaskService', () => {
         evaluators: evaluators
       };
 
-      const evaluation = await EvaluationTaskService.createEvaluation(params, auth);
+      const evaluation = await EvaluationTaskService.createEvaluation({ ...params, teamId, tmbId });
 
       expect(evaluation.name).toBe(params.name);
       expect(evaluation.description).toBe(params.description);
@@ -195,10 +192,10 @@ describe('EvaluationTaskService', () => {
 
       // 验证创建用量记录被调用
       expect(createTrainingUsage).toHaveBeenCalledWith({
-        teamId: expect.any(Object), // ObjectId from auth
-        tmbId: expect.any(Object), // ObjectId from auth
+        teamId: teamId,
+        tmbId: tmbId,
         appName: params.name,
-        billSource: expect.any(String)
+        billSource: 'evaluation'
       });
     });
 
@@ -209,7 +206,7 @@ describe('EvaluationTaskService', () => {
       };
 
       await expect(
-        EvaluationTaskService.createEvaluation(invalidParams as any, auth)
+        EvaluationTaskService.createEvaluation({ ...(invalidParams as any), teamId, tmbId })
       ).rejects.toThrow();
     });
   });
@@ -224,9 +221,9 @@ describe('EvaluationTaskService', () => {
         target,
         evaluators: evaluators
       };
-      const created = await EvaluationTaskService.createEvaluation(params, auth);
+      const created = await EvaluationTaskService.createEvaluation({ ...params, teamId, tmbId });
 
-      const evaluation = await EvaluationTaskService.getEvaluation(created._id, auth);
+      const evaluation = await EvaluationTaskService.getEvaluation(created._id);
 
       expect(evaluation._id.toString()).toBe(created._id.toString());
       expect(evaluation.name).toBe('Get Test Evaluation');
@@ -236,7 +233,7 @@ describe('EvaluationTaskService', () => {
     test('评估任务不存在时应该抛出错误', async () => {
       const nonExistentId = new Types.ObjectId().toString();
 
-      await expect(EvaluationTaskService.getEvaluation(nonExistentId, auth)).rejects.toThrow(
+      await expect(EvaluationTaskService.getEvaluation(nonExistentId)).rejects.toThrow(
         'Evaluation not found'
       );
     });
@@ -252,16 +249,16 @@ describe('EvaluationTaskService', () => {
         target,
         evaluators: evaluators
       };
-      const created = await EvaluationTaskService.createEvaluation(params, auth);
+      const created = await EvaluationTaskService.createEvaluation({ ...params, teamId, tmbId });
 
       const updates = {
         name: 'Updated Test Evaluation',
         description: 'Updated description'
       };
 
-      await EvaluationTaskService.updateEvaluation(created._id, updates, auth);
+      await EvaluationTaskService.updateEvaluation(created._id, updates, teamId);
 
-      const updatedEvaluation = await EvaluationTaskService.getEvaluation(created._id, auth);
+      const updatedEvaluation = await EvaluationTaskService.getEvaluation(created._id);
       expect(updatedEvaluation.name).toBe(updates.name);
       expect(updatedEvaluation.description).toBe(updates.description);
     });
@@ -277,17 +274,23 @@ describe('EvaluationTaskService', () => {
         target,
         evaluators: evaluators
       };
-      const created = await EvaluationTaskService.createEvaluation(params, auth);
+      const created = await EvaluationTaskService.createEvaluation({ ...params, teamId, tmbId });
 
-      const result = await EvaluationTaskService.listEvaluations(auth, 1, 10);
-
-      expect(Array.isArray(result.evaluations)).toBe(true);
-      expect(typeof result.total).toBe('number');
-      expect(result.evaluations.length).toBeGreaterThanOrEqual(1);
-
-      const evaluation = result.evaluations.find(
-        (e) => e._id.toString() === created._id.toString()
+      const result = await EvaluationTaskService.listEvaluations(
+        teamId,
+        1,
+        10,
+        undefined,
+        undefined,
+        tmbId,
+        true
       );
+
+      expect(Array.isArray(result.list)).toBe(true);
+      expect(typeof result.total).toBe('number');
+      expect(result.list.length).toBeGreaterThanOrEqual(1);
+
+      const evaluation = result.list.find((e) => e._id.toString() === created._id.toString());
       expect(evaluation).toBeDefined();
       expect(evaluation?.name).toBe('List Test Evaluation');
     });
@@ -301,14 +304,20 @@ describe('EvaluationTaskService', () => {
         target,
         evaluators: evaluators
       };
-      await EvaluationTaskService.createEvaluation(params, auth);
+      await EvaluationTaskService.createEvaluation({ ...params, teamId, tmbId });
 
-      const result = await EvaluationTaskService.listEvaluations(auth, 1, 10, 'Searchable');
-
-      expect(Array.isArray(result.evaluations)).toBe(true);
-      expect(result.evaluations.some((evaluation) => evaluation.name.includes('Searchable'))).toBe(
+      const result = await EvaluationTaskService.listEvaluations(
+        teamId,
+        1,
+        10,
+        'Searchable',
+        undefined,
+        tmbId,
         true
       );
+
+      expect(Array.isArray(result.list)).toBe(true);
+      expect(result.list.some((evaluation) => evaluation.name.includes('Searchable'))).toBe(true);
     });
   });
 
@@ -322,12 +331,12 @@ describe('EvaluationTaskService', () => {
         target,
         evaluators: evaluators
       };
-      const created = await EvaluationTaskService.createEvaluation(params, auth);
+      const created = await EvaluationTaskService.createEvaluation({ ...params, teamId, tmbId });
 
-      await EvaluationTaskService.startEvaluation(created._id, auth);
+      await EvaluationTaskService.startEvaluation(created._id, teamId);
 
       // 验证状态已更新
-      const evaluation = await EvaluationTaskService.getEvaluation(created._id, auth);
+      const evaluation = await EvaluationTaskService.getEvaluation(created._id);
       expect(evaluation.status).toBe(EvaluationStatusEnum.evaluating);
 
       // 验证任务已提交到队列
@@ -349,7 +358,7 @@ describe('EvaluationTaskService', () => {
         target,
         evaluators: evaluators
       };
-      const created = await EvaluationTaskService.createEvaluation(params, auth);
+      const created = await EvaluationTaskService.createEvaluation({ ...params, teamId, tmbId });
 
       // 先更新状态为已完成
       await MongoEvaluation.updateOne(
@@ -357,7 +366,7 @@ describe('EvaluationTaskService', () => {
         { $set: { status: EvaluationStatusEnum.completed } }
       );
 
-      await expect(EvaluationTaskService.startEvaluation(created._id, auth)).rejects.toThrow(
+      await expect(EvaluationTaskService.startEvaluation(created._id, teamId)).rejects.toThrow(
         'Only queuing evaluations can be started'
       );
     });
@@ -373,7 +382,7 @@ describe('EvaluationTaskService', () => {
         target,
         evaluators: evaluators
       };
-      const evaluation = await EvaluationTaskService.createEvaluation(params, auth);
+      const evaluation = await EvaluationTaskService.createEvaluation({ ...params, teamId, tmbId });
       const testEvaluationId = evaluation._id;
 
       // 重置为evaluating状态
@@ -400,10 +409,10 @@ describe('EvaluationTaskService', () => {
         }
       ]);
 
-      await EvaluationTaskService.stopEvaluation(testEvaluationId, auth);
+      await EvaluationTaskService.stopEvaluation(testEvaluationId, teamId);
 
       // 验证评估任务状态
-      const updatedEvaluation = await EvaluationTaskService.getEvaluation(testEvaluationId, auth);
+      const updatedEvaluation = await EvaluationTaskService.getEvaluation(testEvaluationId);
       expect(updatedEvaluation.status).toBe(EvaluationStatusEnum.error);
       expect(updatedEvaluation.errorMessage).toBe('Manually stopped');
       expect(updatedEvaluation.finishTime).toBeDefined();
@@ -432,7 +441,7 @@ describe('EvaluationTaskService', () => {
         target,
         evaluators: evaluators
       };
-      const evaluation = await EvaluationTaskService.createEvaluation(params, auth);
+      const evaluation = await EvaluationTaskService.createEvaluation({ ...params, teamId, tmbId });
       const testEvaluationId = evaluation._id;
 
       // 创建测试评估项
@@ -485,7 +494,7 @@ describe('EvaluationTaskService', () => {
         }
       ]);
 
-      const stats = await EvaluationTaskService.getEvaluationStats(testEvaluationId, auth);
+      const stats = await EvaluationTaskService.getEvaluationStats(testEvaluationId, teamId);
 
       expect(stats.total).toBe(5);
       expect(stats.completed).toBe(3); // 2个成功 + 1个错误
@@ -506,7 +515,7 @@ describe('EvaluationTaskService', () => {
         target,
         evaluators: evaluators
       };
-      const evaluation = await EvaluationTaskService.createEvaluation(params, auth);
+      const evaluation = await EvaluationTaskService.createEvaluation({ ...params, teamId, tmbId });
       const testEvaluationId = evaluation._id;
 
       // 创建一些测试评估项
@@ -528,7 +537,12 @@ describe('EvaluationTaskService', () => {
         }
       ]);
 
-      const result = await EvaluationTaskService.listEvaluationItems(testEvaluationId, auth, 1, 10);
+      const result = await EvaluationTaskService.listEvaluationItems(
+        testEvaluationId,
+        teamId,
+        1,
+        10
+      );
 
       expect(Array.isArray(result.items)).toBe(true);
       expect(typeof result.total).toBe('number');
@@ -552,7 +566,11 @@ describe('EvaluationTaskService', () => {
           target,
           evaluators: evaluators
         };
-        const evaluation = await EvaluationTaskService.createEvaluation(params, auth);
+        const evaluation = await EvaluationTaskService.createEvaluation({
+          ...params,
+          teamId,
+          tmbId
+        });
         const testEvaluationId = evaluation._id;
 
         const item = await MongoEvalItem.create({
@@ -564,7 +582,7 @@ describe('EvaluationTaskService', () => {
         });
         const itemId = item._id.toString();
 
-        const retrievedItem = await EvaluationTaskService.getEvaluationItem(itemId, auth);
+        const retrievedItem = await EvaluationTaskService.getEvaluationItem(itemId, teamId);
 
         expect(retrievedItem._id.toString()).toBe(itemId);
         expect(retrievedItem.evalId.toString()).toBe(testEvaluationId.toString());
@@ -574,9 +592,9 @@ describe('EvaluationTaskService', () => {
       test('评估项不存在时应该抛出错误', async () => {
         const nonExistentId = new Types.ObjectId().toString();
 
-        await expect(EvaluationTaskService.getEvaluationItem(nonExistentId, auth)).rejects.toThrow(
-          'Evaluation item not found'
-        );
+        await expect(
+          EvaluationTaskService.getEvaluationItem(nonExistentId, teamId)
+        ).rejects.toThrow('Evaluation item not found');
       });
     });
 
@@ -590,7 +608,11 @@ describe('EvaluationTaskService', () => {
           target,
           evaluators: evaluators
         };
-        const evaluation = await EvaluationTaskService.createEvaluation(params, auth);
+        const evaluation = await EvaluationTaskService.createEvaluation({
+          ...params,
+          teamId,
+          tmbId
+        });
         const testEvaluationId = evaluation._id;
 
         const item = await MongoEvalItem.create({
@@ -615,9 +637,9 @@ describe('EvaluationTaskService', () => {
           }
         };
 
-        await EvaluationTaskService.updateEvaluationItem(itemId, updates, auth);
+        await EvaluationTaskService.updateEvaluationItem(itemId, updates, teamId);
 
-        const updatedItem = await EvaluationTaskService.getEvaluationItem(itemId, auth);
+        const updatedItem = await EvaluationTaskService.getEvaluationItem(itemId, teamId);
         expect(updatedItem.status).toBe(updates.status);
         expect(updatedItem.evaluatorOutput?.score).toBe(88);
         expect(updatedItem.targetOutput?.actualOutput).toBe('Updated response');
@@ -634,7 +656,11 @@ describe('EvaluationTaskService', () => {
           target,
           evaluators: evaluators
         };
-        const evaluation = await EvaluationTaskService.createEvaluation(params, auth);
+        const evaluation = await EvaluationTaskService.createEvaluation({
+          ...params,
+          teamId,
+          tmbId
+        });
         const testEvaluationId = evaluation._id;
 
         const item = await MongoEvalItem.create({
@@ -648,9 +674,9 @@ describe('EvaluationTaskService', () => {
         });
         const itemId = item._id.toString();
 
-        await EvaluationTaskService.retryEvaluationItem(itemId, auth);
+        await EvaluationTaskService.retryEvaluationItem(itemId, teamId);
 
-        const retriedItem = await EvaluationTaskService.getEvaluationItem(itemId, auth);
+        const retriedItem = await EvaluationTaskService.getEvaluationItem(itemId, teamId);
         expect(retriedItem.status).toBe(EvaluationStatusEnum.queuing);
         expect(retriedItem.errorMessage).toBeNull();
         expect(retriedItem.retry).toBeGreaterThanOrEqual(1);
@@ -671,7 +697,11 @@ describe('EvaluationTaskService', () => {
           target,
           evaluators: evaluators
         };
-        const evaluation = await EvaluationTaskService.createEvaluation(params, auth);
+        const evaluation = await EvaluationTaskService.createEvaluation({
+          ...params,
+          teamId,
+          tmbId
+        });
         const testEvaluationId = evaluation._id;
 
         // 创建一个已完成且无错误的评估项
@@ -685,7 +715,7 @@ describe('EvaluationTaskService', () => {
         });
         const itemId = item._id.toString();
 
-        await expect(EvaluationTaskService.retryEvaluationItem(itemId, auth)).rejects.toThrow(
+        await expect(EvaluationTaskService.retryEvaluationItem(itemId, teamId)).rejects.toThrow(
           'Only failed evaluation items can be retried'
         );
       });
@@ -701,7 +731,11 @@ describe('EvaluationTaskService', () => {
           target,
           evaluators: evaluators
         };
-        const evaluation = await EvaluationTaskService.createEvaluation(params, auth);
+        const evaluation = await EvaluationTaskService.createEvaluation({
+          ...params,
+          teamId,
+          tmbId
+        });
         const testEvaluationId = evaluation._id;
 
         const item = await MongoEvalItem.create({
@@ -713,9 +747,9 @@ describe('EvaluationTaskService', () => {
         });
         const itemId = item._id.toString();
 
-        await EvaluationTaskService.deleteEvaluationItem(itemId, auth);
+        await EvaluationTaskService.deleteEvaluationItem(itemId, teamId);
 
-        await expect(EvaluationTaskService.getEvaluationItem(itemId, auth)).rejects.toThrow(
+        await expect(EvaluationTaskService.getEvaluationItem(itemId, teamId)).rejects.toThrow(
           'Evaluation item not found'
         );
       });
@@ -731,7 +765,11 @@ describe('EvaluationTaskService', () => {
           target,
           evaluators: evaluators
         };
-        const evaluation = await EvaluationTaskService.createEvaluation(params, auth);
+        const evaluation = await EvaluationTaskService.createEvaluation({
+          ...params,
+          teamId,
+          tmbId
+        });
         const testEvaluationId = evaluation._id;
 
         const item = await MongoEvalItem.create({
@@ -753,7 +791,7 @@ describe('EvaluationTaskService', () => {
         });
         const itemId = item._id.toString();
 
-        const result = await EvaluationTaskService.getEvaluationItemResult(itemId, auth);
+        const result = await EvaluationTaskService.getEvaluationItemResult(itemId, teamId);
 
         expect(result.item._id.toString()).toBe(itemId);
         expect(result.dataItem.userInput).toBe('Test Item');
@@ -777,7 +815,7 @@ describe('EvaluationTaskService', () => {
         target,
         evaluators: evaluators
       };
-      const evaluation = await EvaluationTaskService.createEvaluation(params, auth);
+      const evaluation = await EvaluationTaskService.createEvaluation({ ...params, teamId, tmbId });
       testEvaluationId = evaluation._id;
 
       // 创建测试数据
@@ -831,7 +869,7 @@ describe('EvaluationTaskService', () => {
     });
 
     test('应该按状态搜索', async () => {
-      const result = await EvaluationTaskService.searchEvaluationItems(testEvaluationId, auth, {
+      const result = await EvaluationTaskService.searchEvaluationItems(testEvaluationId, teamId, {
         status: EvaluationStatusEnum.completed
       });
 
@@ -840,7 +878,7 @@ describe('EvaluationTaskService', () => {
     });
 
     test('应该按错误状态搜索', async () => {
-      const result = await EvaluationTaskService.searchEvaluationItems(testEvaluationId, auth, {
+      const result = await EvaluationTaskService.searchEvaluationItems(testEvaluationId, teamId, {
         hasError: true
       });
 
@@ -849,7 +887,7 @@ describe('EvaluationTaskService', () => {
     });
 
     test('应该按分数范围搜索', async () => {
-      const result = await EvaluationTaskService.searchEvaluationItems(testEvaluationId, auth, {
+      const result = await EvaluationTaskService.searchEvaluationItems(testEvaluationId, teamId, {
         scoreRange: { min: 80, max: 90 }
       });
 
@@ -858,7 +896,7 @@ describe('EvaluationTaskService', () => {
     });
 
     test('应该按关键词搜索', async () => {
-      const result = await EvaluationTaskService.searchEvaluationItems(testEvaluationId, auth, {
+      const result = await EvaluationTaskService.searchEvaluationItems(testEvaluationId, teamId, {
         keyword: 'JavaScript'
       });
 
@@ -867,7 +905,7 @@ describe('EvaluationTaskService', () => {
     });
 
     test('应该支持分页', async () => {
-      const result = await EvaluationTaskService.searchEvaluationItems(testEvaluationId, auth, {
+      const result = await EvaluationTaskService.searchEvaluationItems(testEvaluationId, teamId, {
         page: 1,
         pageSize: 2
       });
@@ -887,7 +925,7 @@ describe('EvaluationTaskService', () => {
         target,
         evaluators: evaluators
       };
-      const evaluation = await EvaluationTaskService.createEvaluation(params, auth);
+      const evaluation = await EvaluationTaskService.createEvaluation({ ...params, teamId, tmbId });
       const testEvaluationId = evaluation._id;
 
       // 创建一些测试数据
@@ -910,7 +948,7 @@ describe('EvaluationTaskService', () => {
 
       const buffer = await EvaluationTaskService.exportEvaluationResults(
         testEvaluationId,
-        auth,
+        teamId,
         'json'
       );
       const data = JSON.parse(buffer.toString());
@@ -933,7 +971,7 @@ describe('EvaluationTaskService', () => {
         target,
         evaluators: evaluators
       };
-      const evaluation = await EvaluationTaskService.createEvaluation(params, auth);
+      const evaluation = await EvaluationTaskService.createEvaluation({ ...params, teamId, tmbId });
       const testEvaluationId = evaluation._id;
 
       // 创建一些测试数据
@@ -956,7 +994,7 @@ describe('EvaluationTaskService', () => {
 
       const buffer = await EvaluationTaskService.exportEvaluationResults(
         testEvaluationId,
-        auth,
+        teamId,
         'csv'
       );
       const csvContent = buffer.toString();
@@ -980,7 +1018,7 @@ describe('EvaluationTaskService', () => {
 
       const buffer = await EvaluationTaskService.exportEvaluationResults(
         emptyEvaluation._id.toString(),
-        auth,
+        teamId,
         'csv'
       );
 
@@ -998,7 +1036,7 @@ describe('EvaluationTaskService', () => {
         target,
         evaluators: evaluators
       };
-      const evaluation = await EvaluationTaskService.createEvaluation(params, auth);
+      const evaluation = await EvaluationTaskService.createEvaluation({ ...params, teamId, tmbId });
       const testEvaluationId = evaluation._id;
 
       // 创建失败的评估项和成功的评估项
@@ -1033,7 +1071,7 @@ describe('EvaluationTaskService', () => {
         }
       ]);
 
-      const retryCount = await EvaluationTaskService.retryFailedItems(testEvaluationId, auth);
+      const retryCount = await EvaluationTaskService.retryFailedItems(testEvaluationId, teamId);
 
       expect(retryCount).toBe(2);
 
@@ -1072,7 +1110,7 @@ describe('EvaluationTaskService', () => {
         target,
         evaluators: evaluators
       };
-      const evaluation = await EvaluationTaskService.createEvaluation(params, auth);
+      const evaluation = await EvaluationTaskService.createEvaluation({ ...params, teamId, tmbId });
       const testEvaluationId = evaluation._id;
 
       // 创建一些评估项
@@ -1101,10 +1139,10 @@ describe('EvaluationTaskService', () => {
       const itemCount = await MongoEvalItem.countDocuments({ evalId: testEvaluationId });
       expect(itemCount).toBeGreaterThan(0); // 确保有评估项存在
 
-      await EvaluationTaskService.deleteEvaluation(testEvaluationId, auth);
+      await EvaluationTaskService.deleteEvaluation(testEvaluationId, teamId);
 
       // 验证评估任务被删除
-      await expect(EvaluationTaskService.getEvaluation(testEvaluationId, auth)).rejects.toThrow(
+      await expect(EvaluationTaskService.getEvaluation(testEvaluationId)).rejects.toThrow(
         'Evaluation not found'
       );
 
@@ -1145,7 +1183,7 @@ describe('EvaluationTaskService', () => {
 
     test('应该正确处理评估任务流程', async () => {
       // Import the processor module after mocking
-      const { evaluationTaskProcessor, evaluationItemProcessor } = await import(
+      const { evaluationTaskProcessor } = await import(
         '@fastgpt/service/core/evaluation/processor'
       );
 
@@ -1174,7 +1212,7 @@ describe('EvaluationTaskService', () => {
         target,
         evaluators: evaluators
       };
-      const evaluation = await EvaluationTaskService.createEvaluation(params, auth);
+      const evaluation = await EvaluationTaskService.createEvaluation({ ...params, teamId, tmbId });
       const evalId = evaluation._id;
 
       // Mock job data for task processor

@@ -6,6 +6,7 @@ import type {
   RetryFailedEvaluationItemsRequest,
   RetryFailedItemsResponse
 } from '@fastgpt/global/core/evaluation/api';
+import { validateEvaluationTaskWrite } from '@fastgpt/service/core/evaluation/common';
 
 async function handler(
   req: ApiRequestProps<RetryFailedEvaluationItemsRequest>
@@ -17,10 +18,14 @@ async function handler(
       return Promise.reject('Evaluation ID is required');
     }
 
-    const retryCount = await EvaluationTaskService.retryFailedItems(evalId, {
+    // API层权限验证: 评估任务写权限
+    const { teamId } = await validateEvaluationTaskWrite(evalId, {
       req,
       authToken: true
     });
+
+    // Service层业务逻辑
+    const retryCount = await EvaluationTaskService.retryFailedItems(evalId, teamId);
 
     addLog.info('[Evaluation] Failed items retry batch started successfully', {
       evalId,

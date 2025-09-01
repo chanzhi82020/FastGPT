@@ -1,4 +1,4 @@
-import type { ApiRequestProps, ApiResponseType } from '@fastgpt/service/type/next';
+import type { ApiRequestProps } from '@fastgpt/service/type/next';
 import { NextAPI } from '@/service/middleware/entry';
 import { EvaluationTaskService } from '@fastgpt/service/core/evaluation/task';
 import type {
@@ -6,6 +6,7 @@ import type {
   StartEvaluationResponse
 } from '@fastgpt/global/core/evaluation/api';
 import { addLog } from '@fastgpt/service/common/system/log';
+import { validateEvaluationTaskExecution } from '@fastgpt/service/core/evaluation/common';
 
 async function handler(
   req: ApiRequestProps<StartEvaluationRequest>
@@ -17,10 +18,14 @@ async function handler(
       return Promise.reject('Evaluation ID is required');
     }
 
-    await EvaluationTaskService.startEvaluation(evalId, {
+    // API层权限验证: 评估任务执行权限
+    const { teamId } = await validateEvaluationTaskExecution(evalId, {
       req,
       authToken: true
     });
+
+    // Service层业务逻辑
+    await EvaluationTaskService.startEvaluation(evalId, teamId);
 
     addLog.info('[Evaluation] Evaluation task started successfully', {
       evalId

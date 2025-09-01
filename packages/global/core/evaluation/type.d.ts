@@ -98,6 +98,12 @@ export type EvaluationSchemaType = {
   statistics?: EvaluationStatistics;
 };
 
+import type { EvaluationPermission } from '../../../support/permission/evaluation/controller';
+
+export type EvaluationDetailType = EvaluationSchemaType & {
+  permission: EvaluationPermission;
+};
+
 // Evaluation item types (atomic: one dataItem + one target + one evaluator)
 export type EvaluationItemSchemaType = {
   _id: string;

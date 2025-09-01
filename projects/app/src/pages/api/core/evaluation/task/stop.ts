@@ -6,6 +6,7 @@ import type {
   StopEvaluationResponse
 } from '@fastgpt/global/core/evaluation/api';
 import { addLog } from '@fastgpt/service/common/system/log';
+import { validateEvaluationTaskExecution } from '@fastgpt/service/core/evaluation/common';
 
 async function handler(
   req: ApiRequestProps<StopEvaluationRequest>
@@ -17,10 +18,14 @@ async function handler(
       return Promise.reject('Evaluation ID is required');
     }
 
-    await EvaluationTaskService.stopEvaluation(evalId, {
+    // API层权限验证: 评估任务执行权限
+    const { teamId } = await validateEvaluationTaskExecution(evalId, {
       req,
       authToken: true
     });
+
+    // Service层业务逻辑
+    await EvaluationTaskService.stopEvaluation(evalId, teamId);
 
     addLog.info('[Evaluation] Evaluation task stopped successfully', {
       evalId

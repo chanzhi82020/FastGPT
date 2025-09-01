@@ -7,6 +7,7 @@ import type {
 } from '@fastgpt/global/core/evaluation/api';
 import { addLog } from '@fastgpt/service/common/system/log';
 import { validateEvaluationParams } from '@fastgpt/global/core/evaluation/utils';
+import { validateEvaluationTaskWrite } from '@fastgpt/service/core/evaluation/common';
 
 async function handler(
   req: ApiRequestProps<UpdateEvaluationRequest>
@@ -27,16 +28,20 @@ async function handler(
       return Promise.reject(paramValidation.message);
     }
 
+    // API层权限验证: 评估任务写权限
+    const { teamId } = await validateEvaluationTaskWrite(evalId, {
+      req,
+      authToken: true
+    });
+
+    // Service层业务逻辑
     await EvaluationTaskService.updateEvaluation(
       evalId,
       {
         ...(name !== undefined && { name: name.trim() }),
         ...(description !== undefined && { description: description?.trim() })
       },
-      {
-        req,
-        authToken: true
-      }
+      teamId
     );
 
     addLog.info('[Evaluation] Evaluation task updated successfully', {

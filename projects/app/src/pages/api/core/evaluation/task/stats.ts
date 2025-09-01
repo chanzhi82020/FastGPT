@@ -6,6 +6,7 @@ import type {
   EvaluationStatsResponse
 } from '@fastgpt/global/core/evaluation/api';
 import { addLog } from '@fastgpt/service/common/system/log';
+import { validateEvaluationTaskRead } from '@fastgpt/service/core/evaluation/common';
 
 async function handler(
   req: ApiRequestProps<{}, StatsEvaluationRequest>
@@ -17,10 +18,14 @@ async function handler(
       return Promise.reject('Evaluation ID is required');
     }
 
-    const stats = await EvaluationTaskService.getEvaluationStats(evalId, {
+    // API层权限验证: 评估任务读权限
+    const { teamId } = await validateEvaluationTaskRead(evalId, {
       req,
       authToken: true
     });
+
+    // Service层业务逻辑
+    const stats = await EvaluationTaskService.getEvaluationStats(evalId, teamId);
 
     addLog.info('[Evaluation] Evaluation task statistics query successful', {
       evalId,

@@ -10,7 +10,6 @@ import type {
   EvalCase,
   MetricDependency
 } from '@fastgpt/global/core/evaluation/type';
-import type { AuthModeType } from '@fastgpt/service/support/permission/type';
 import { Types } from '@fastgpt/service/common/mongo';
 
 // Mock getAppEvaluationScore
@@ -31,11 +30,11 @@ import { parseHeaderCert } from '@fastgpt/service/support/permission/controller'
 
 describe('EvaluationMetricService - AI Model Only', () => {
   let teamId: string;
-  let auth: AuthModeType;
+  let tmbId: string;
 
   beforeAll(async () => {
     teamId = '507f1f77bcf86cd799439011';
-    auth = { req: {} as any, authToken: true };
+    tmbId = '507f1f77bcf86cd799439012';
   });
 
   afterAll(async () => {
@@ -46,7 +45,7 @@ describe('EvaluationMetricService - AI Model Only', () => {
     vi.clearAllMocks();
     (parseHeaderCert as any).mockResolvedValue({
       teamId: new Types.ObjectId(teamId),
-      tmbId: new Types.ObjectId(teamId)
+      tmbId: new Types.ObjectId(tmbId)
     });
   });
 
@@ -62,14 +61,14 @@ describe('EvaluationMetricService - AI Model Only', () => {
         }
       };
 
-      const metric = await EvaluationMetricService.createMetric(params, auth);
+      const metric = await EvaluationMetricService.createMetric({ ...params, teamId, tmbId });
 
       expect(metric.name).toBe(params.name);
       expect(metric.description).toBe(params.description);
       expect(metric.type).toBe('ai_model');
       expect(metric.config).toEqual(params.config);
       expect(metric.teamId.toString()).toBe(teamId);
-      expect(metric.tmbId.toString()).toBe(teamId);
+      expect(metric.tmbId.toString()).toBe(tmbId);
     });
 
     test('缺少必填字段时应该抛出错误', async () => {
@@ -80,7 +79,7 @@ describe('EvaluationMetricService - AI Model Only', () => {
       };
 
       await expect(
-        EvaluationMetricService.createMetric(invalidParams as any, auth)
+        EvaluationMetricService.createMetric({ ...(invalidParams as any), teamId, tmbId })
       ).rejects.toThrow('name: Path `name` is required');
     });
 
@@ -91,25 +90,24 @@ describe('EvaluationMetricService - AI Model Only', () => {
         config: { llm: 'gpt-4' }
       };
 
-      await expect(EvaluationMetricService.createMetric(invalidParams, auth)).rejects.toThrow(
-        'unsupported_type` is not a valid enum value for path `type`'
-      );
+      await expect(
+        EvaluationMetricService.createMetric({ ...invalidParams, teamId, tmbId })
+      ).rejects.toThrow('unsupported_type` is not a valid enum value for path `type`');
     });
   });
 
   describe('getMetric', () => {
     test('应该成功获取指标', async () => {
-      const created = await EvaluationMetricService.createMetric(
-        {
-          name: 'AI Metric for Get Test',
-          description: 'AI metric for get test',
-          type: 'ai_model',
-          config: { llm: 'gpt-4', prompt: 'Test prompt' }
-        },
-        auth
-      );
+      const created = await EvaluationMetricService.createMetric({
+        name: 'AI Metric for Get Test',
+        description: 'AI metric for get test',
+        type: 'ai_model',
+        config: { llm: 'gpt-4', prompt: 'Test prompt' },
+        teamId,
+        tmbId
+      });
 
-      const metric = await EvaluationMetricService.getMetric(created._id, auth);
+      const metric = await EvaluationMetricService.getMetric(created._id, teamId);
 
       expect(metric._id.toString()).toBe(created._id.toString());
       expect(metric.name).toBe('AI Metric for Get Test');
@@ -119,7 +117,7 @@ describe('EvaluationMetricService - AI Model Only', () => {
     test('指标不存在时应该抛出错误', async () => {
       const nonExistentId = new Types.ObjectId().toString();
 
-      await expect(EvaluationMetricService.getMetric(nonExistentId, auth)).rejects.toThrow(
+      await expect(EvaluationMetricService.getMetric(nonExistentId, teamId)).rejects.toThrow(
         'Metric not found'
       );
     });
@@ -127,29 +125,44 @@ describe('EvaluationMetricService - AI Model Only', () => {
 
   describe('listMetrics', () => {
     test('应该成功获取指标列表', async () => {
-      const result = await EvaluationMetricService.listMetrics(auth, 1, 10);
+      const result = await EvaluationMetricService.listMetrics(
+        teamId,
+        1,
+        10,
+        undefined,
+        undefined,
+        tmbId,
+        true
+      );
 
-      expect(result.metrics).toBeInstanceOf(Array);
+      expect(result.list).toBeInstanceOf(Array);
       expect(result.total).toBeGreaterThanOrEqual(0);
       if (result.total > 0) {
-        expect(result.metrics.every((metric) => metric.type === 'ai_model')).toBe(true);
+        expect(result.list.every((metric) => metric.type === 'ai_model')).toBe(true);
       }
     });
 
     test('应该支持搜索功能', async () => {
-      await EvaluationMetricService.createMetric(
-        {
-          name: 'AI Search Test',
-          type: 'ai_model',
-          config: { llm: 'gpt-4', prompt: 'Test prompt' }
-        },
-        auth
+      await EvaluationMetricService.createMetric({
+        name: 'AI Search Test',
+        type: 'ai_model',
+        config: { llm: 'gpt-4', prompt: 'Test prompt' },
+        teamId,
+        tmbId
+      });
+
+      const result = await EvaluationMetricService.listMetrics(
+        teamId,
+        1,
+        10,
+        'AI',
+        undefined,
+        tmbId,
+        true
       );
 
-      const result = await EvaluationMetricService.listMetrics(auth, 1, 10, 'AI');
-
       expect(result.total).toBeGreaterThan(0);
-      expect(result.metrics.some((metric) => metric.name.includes('AI'))).toBe(true);
+      expect(result.list.some((metric) => metric.name.includes('AI'))).toBe(true);
     });
   });
 });

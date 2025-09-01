@@ -7,6 +7,7 @@ import type {
 } from '@fastgpt/global/core/evaluation/api';
 import { addLog } from '@fastgpt/service/common/system/log';
 import { validateEvaluationParams } from '@fastgpt/global/core/evaluation/utils';
+import { validateEvaluationMetricWrite } from '@fastgpt/service/core/evaluation/common';
 
 async function handler(req: ApiRequestProps<UpdateMetricRequest>): Promise<UpdateMetricResponse> {
   try {
@@ -15,11 +16,6 @@ async function handler(req: ApiRequestProps<UpdateMetricRequest>): Promise<Updat
     if (!metricId) {
       return Promise.reject('Metric ID is required');
     }
-
-    const auth = {
-      req,
-      authToken: true
-    };
 
     // Validate name and description with common validation utility
     const paramValidation = validateEvaluationParams(
@@ -30,6 +26,13 @@ async function handler(req: ApiRequestProps<UpdateMetricRequest>): Promise<Updat
       return Promise.reject(paramValidation.message);
     }
 
+    // API层权限验证: 评估指标写权限
+    const { teamId } = await validateEvaluationMetricWrite(metricId, {
+      req,
+      authToken: true
+    });
+
+    // Service层业务逻辑
     await EvaluationMetricService.updateMetric(
       metricId,
       {
@@ -38,7 +41,7 @@ async function handler(req: ApiRequestProps<UpdateMetricRequest>): Promise<Updat
         ...(config !== undefined && { config }),
         ...(dependencies !== undefined && { dependencies })
       },
-      auth
+      teamId
     );
 
     addLog.info('[Evaluation Metric] Metric updated successfully', {

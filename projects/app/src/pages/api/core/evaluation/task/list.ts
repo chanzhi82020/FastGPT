@@ -6,6 +6,7 @@ import type {
   ListEvaluationsResponse
 } from '@fastgpt/global/core/evaluation/api';
 import { addLog } from '@fastgpt/service/common/system/log';
+import { getEvaluationPermissionAggregation } from '@fastgpt/service/core/evaluation/common';
 
 async function handler(
   req: ApiRequestProps<ListEvaluationsRequest>
@@ -25,28 +26,104 @@ async function handler(
       return Promise.reject('Invalid page size (1-100)');
     }
 
-    const result = await EvaluationTaskService.listEvaluations(
-      {
+    // API层权限验证: 获取权限聚合信息
+    const { teamId, tmbId, isOwner, roleList, myGroupMap, myOrgSet } =
+      await getEvaluationPermissionAggregation({
         req,
         authToken: true
-      },
+      });
+
+    // 计算用户可访问的资源ID
+    const myRoles = roleList.filter(
+      (item) =>
+        String(item.tmbId) === String(tmbId) ||
+        myGroupMap.has(String(item.groupId)) ||
+        myOrgSet.has(String(item.orgId))
+    );
+    const accessibleIds = myRoles.map((item) => item.resourceId);
+
+    // Service层业务逻辑
+    const result = await EvaluationTaskService.listEvaluations(
+      teamId,
       pageNumInt,
       pageSizeInt,
-      searchKey?.trim()
+      searchKey?.trim(),
+      accessibleIds,
+      tmbId,
+      isOwner
     );
+
+    // API层权限处理：添加权限信息和过滤
+    const { EvaluationPermission } = await import(
+      '@fastgpt/global/support/permission/evaluation/controller'
+    );
+    const { sumPer } = await import('@fastgpt/global/support/permission/utils');
+    const { addSourceMember } = await import('@fastgpt/service/support/user/utils');
+
+    const formatEvaluations = result.list
+      .map((evaluation: any) => {
+        const getPer = (evalId: string) => {
+          const tmbRole = myRoles.find(
+            (item) => String(item.resourceId) === evalId && !!item.tmbId
+          )?.permission;
+          const groupRole = sumPer(
+            ...myRoles
+              .filter(
+                (item) => String(item.resourceId) === evalId && (!!item.groupId || !!item.orgId)
+              )
+              .map((item) => item.permission)
+          );
+
+          return new EvaluationPermission({
+            role: tmbRole ?? groupRole,
+            isOwner: String(evaluation.tmbId) === String(tmbId) || isOwner
+          });
+        };
+
+        const getClbCount = (evalId: string) => {
+          return roleList.filter((item) => String(item.resourceId) === String(evalId)).length;
+        };
+
+        const getPrivateStatus = (evalId: string) => {
+          const collaboratorCount = getClbCount(evalId);
+          // 参照app list逻辑：协作者数量 <= 1 且非团队owner时为私有
+          // 团队owner可以看到所有评估的协作状态
+          if (isOwner) {
+            return collaboratorCount <= 1;
+          }
+          // 普通用户：无协作者或只有自己为私有
+          return (
+            collaboratorCount === 0 ||
+            (collaboratorCount === 1 && String(evaluation.tmbId) === String(tmbId))
+          );
+        };
+
+        return {
+          ...evaluation,
+          permission: getPer(String(evaluation._id)),
+          private: getPrivateStatus(String(evaluation._id))
+        };
+      })
+      .filter((evaluation: any) => evaluation.permission.hasReadPer);
+
+    const formattedResult = await addSourceMember({
+      list: formatEvaluations
+    });
+
+    const finalResult = {
+      list: formattedResult,
+      total: result.total
+    };
 
     addLog.info('[Evaluation] Evaluation list query successful', {
       pageNum: pageNumInt,
       pageSize: pageSizeInt,
       searchKey: searchKey?.trim(),
-      total: result.total,
-      returned: result.evaluations.length
+      total: finalResult.total,
+      returned: finalResult.list.length
     });
 
-    return {
-      list: result.evaluations,
-      total: result.total
-    };
+    return finalResult;
   } catch (error) {
     addLog.error('[Evaluation] Failed to query evaluation list', error);
     return Promise.reject(error);

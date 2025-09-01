@@ -9,6 +9,7 @@ import type {
 } from '@fastgpt/global/core/evaluation/api';
 import { validateTargetConfig } from '@fastgpt/service/core/evaluation/target';
 import { validateEvaluationParams } from '@fastgpt/global/core/evaluation/utils';
+import { validateEvaluationTaskCreate } from '@fastgpt/service/core/evaluation/common';
 
 async function handler(
   req: ApiRequestProps<CreateEvaluationRequest>
@@ -45,20 +46,22 @@ async function handler(
       }
     }
 
-    // Create evaluation task
-    const evaluation = await EvaluationTaskService.createEvaluation(
-      {
-        name: name.trim(),
-        description: description?.trim(),
-        datasetId,
-        target: target as EvalTarget,
-        evaluators
-      },
-      {
-        req,
-        authToken: true
-      }
-    );
+    // API层权限验证: 团队评估创建权限 + target关联APP读权限
+    const { teamId, tmbId } = await validateEvaluationTaskCreate(target as EvalTarget, {
+      req,
+      authToken: true
+    });
+
+    // Create evaluation task (Service层只处理业务逻辑，不再处理权限)
+    const evaluation = await EvaluationTaskService.createEvaluation({
+      name: name.trim(),
+      description: description?.trim(),
+      datasetId,
+      target: target as EvalTarget,
+      evaluators,
+      teamId,
+      tmbId
+    });
 
     addLog.info('[Evaluation] Evaluation task created successfully', {
       evalId: evaluation._id,

@@ -6,6 +6,7 @@ import type {
   DatasetDetailResponse
 } from '@fastgpt/global/core/evaluation/api';
 import { addLog } from '@fastgpt/service/common/system/log';
+import { validateEvaluationDatasetRead } from '@fastgpt/service/core/evaluation/common';
 
 async function handler(
   req: ApiRequestProps<{}, DatasetDetailRequest>
@@ -17,10 +18,14 @@ async function handler(
       return Promise.reject('Dataset ID is required');
     }
 
-    const dataset = await EvaluationDatasetService.getDataset(datasetId, {
+    // API层权限验证: 评估数据集读权限
+    const { teamId } = await validateEvaluationDatasetRead(datasetId, {
       req,
       authToken: true
     });
+
+    // Service层业务逻辑
+    const dataset = await EvaluationDatasetService.getDataset(datasetId, teamId);
 
     addLog.info('[Evaluation Dataset] Dataset details retrieved successfully', {
       datasetId: datasetId,

@@ -20,7 +20,6 @@ import type {
   CreateEvaluationParams,
   EvalTarget
 } from '@fastgpt/global/core/evaluation/type';
-import type { AuthModeType } from '@fastgpt/service/support/permission/type';
 import { EvaluationStatusEnum } from '@fastgpt/global/core/evaluation/constants';
 import { Types } from '@fastgpt/service/common/mongo';
 
@@ -249,7 +248,6 @@ import { parseHeaderCert } from '@fastgpt/service/support/permission/controller'
 describe('End-to-End Evaluation System', () => {
   let teamId: string;
   let tmbId: string;
-  let auth: AuthModeType;
   let datasetId: string;
   let target: EvalTarget;
   let metricIds: string[];
@@ -261,7 +259,6 @@ describe('End-to-End Evaluation System', () => {
     // 使用固定的测试 ID 来避免 ObjectId 导入问题
     teamId = '507f1f77bcf86cd799439011';
     tmbId = '507f1f77bcf86cd799439012';
-    auth = { req: {} as any, authToken: true };
 
     // 初始化公共目标对象
     target = {
@@ -315,7 +312,11 @@ describe('End-to-End Evaluation System', () => {
         ]
       };
 
-      const dataset = await EvaluationDatasetService.createDataset(datasetParams, auth);
+      const dataset = await EvaluationDatasetService.createDataset({
+        ...datasetParams,
+        teamId,
+        tmbId
+      });
       datasetId = dataset._id;
 
       // 导入测试数据
@@ -344,7 +345,7 @@ describe('End-to-End Evaluation System', () => {
         }
       ];
 
-      const importResult = await EvaluationDatasetService.importData(datasetId, testData, auth);
+      const importResult = await EvaluationDatasetService.importData(datasetId, testData, teamId);
       expect(importResult.success).toBe(true);
       expect(importResult.importedCount).toBe(4);
 
@@ -365,7 +366,11 @@ describe('End-to-End Evaluation System', () => {
         }
       };
 
-      const accuracyMetric = await EvaluationMetricService.createMetric(accuracyMetricParams, auth);
+      const accuracyMetric = await EvaluationMetricService.createMetric({
+        ...accuracyMetricParams,
+        teamId,
+        tmbId
+      });
 
       // 指标 2: AI 语义相似性评估
       const semanticMetricParams: CreateMetricParams = {
@@ -379,7 +384,11 @@ describe('End-to-End Evaluation System', () => {
         }
       };
 
-      const semanticMetric = await EvaluationMetricService.createMetric(semanticMetricParams, auth);
+      const semanticMetric = await EvaluationMetricService.createMetric({
+        ...semanticMetricParams,
+        teamId,
+        tmbId
+      });
 
       // 指标 3: AI 专业性评估
       const professionalismMetricParams: CreateMetricParams = {
@@ -393,10 +402,11 @@ describe('End-to-End Evaluation System', () => {
         }
       };
 
-      const professionalismMetric = await EvaluationMetricService.createMetric(
-        professionalismMetricParams,
-        auth
-      );
+      const professionalismMetric = await EvaluationMetricService.createMetric({
+        ...professionalismMetricParams,
+        teamId,
+        tmbId
+      });
 
       metricIds = [accuracyMetric._id, semanticMetric._id, professionalismMetric._id];
 
@@ -425,21 +435,25 @@ describe('End-to-End Evaluation System', () => {
         evaluators: evaluators
       };
 
-      const evaluation = await EvaluationTaskService.createEvaluation(evaluationParams, auth);
+      const evaluation = await EvaluationTaskService.createEvaluation({
+        ...evaluationParams,
+        teamId,
+        tmbId
+      });
 
       evalId = String(evaluation._id);
 
       // =================== 步骤 5: 模拟队列处理 ===================
 
       // 启动评估任务
-      await EvaluationTaskService.startEvaluation(evalId, auth);
+      await EvaluationTaskService.startEvaluation(evalId, teamId);
 
       // 验证队列统计(模拟)
       const stats = await evaluationTaskQueue.getJobCounts();
       expect(typeof stats.waiting).toBe('number');
 
       // 模拟任务处理器：创建评估项
-      const testDataset = await EvaluationDatasetService.getDataset(datasetId, auth);
+      const testDataset = await EvaluationDatasetService.getDataset(datasetId, teamId);
 
       // 创建原子性评估项：每个 dataItem + 每个 evaluator 创建一个评估项
       const evalItems: any[] = [];
@@ -664,10 +678,11 @@ describe('End-to-End Evaluation System', () => {
         evaluators: [evaluators[0]]
       };
 
-      const errorEvaluation = await EvaluationTaskService.createEvaluation(
-        errorEvaluationParams,
-        auth
-      );
+      const errorEvaluation = await EvaluationTaskService.createEvaluation({
+        ...errorEvaluationParams,
+        teamId,
+        tmbId
+      });
 
       // 创建一个模拟的评估项（通常由队列处理器生成）
       const mockEvalItem = await MongoEvalItem.create({
@@ -729,17 +744,16 @@ describe('End-to-End Evaluation System', () => {
         // 只支持ai_model类型，跳过function类型
         if (combination.metricTypes.includes('function')) {
           // 使用AI模型指标替代function指标
-          const aiMetric = await EvaluationMetricService.createMetric(
-            {
-              name: `AI Replacement for Function Metric - ${combination.name}`,
-              type: 'ai_model',
-              config: {
-                llm: 'gpt-4',
-                prompt: 'Evaluate this response with a focus on functional accuracy.'
-              }
+          const aiMetric = await EvaluationMetricService.createMetric({
+            name: `AI Replacement for Function Metric - ${combination.name}`,
+            type: 'ai_model',
+            config: {
+              llm: 'gpt-4',
+              prompt: 'Evaluate this response with a focus on functional accuracy.'
             },
-            auth
-          );
+            teamId,
+            tmbId
+          });
           combinationMetricIds.push(aiMetric._id.toString());
           combinationEvaluators.push({
             metric: aiMetric,
@@ -748,17 +762,16 @@ describe('End-to-End Evaluation System', () => {
         }
 
         if (combination.metricTypes.includes('ai_model')) {
-          const aiMetric = await EvaluationMetricService.createMetric(
-            {
-              name: `AI Metric - ${combination.name}`,
-              type: 'ai_model',
-              config: {
-                llm: 'gpt-4',
-                prompt: 'Evaluate this response'
-              }
+          const aiMetric = await EvaluationMetricService.createMetric({
+            name: `AI Metric - ${combination.name}`,
+            type: 'ai_model',
+            config: {
+              llm: 'gpt-4',
+              prompt: 'Evaluate this response'
             },
-            auth
-          );
+            teamId,
+            tmbId
+          });
           combinationMetricIds.push(aiMetric._id.toString());
           combinationEvaluators.push({
             metric: aiMetric,
@@ -774,10 +787,11 @@ describe('End-to-End Evaluation System', () => {
           evaluators: combinationEvaluators
         };
 
-        const combinationEval = await EvaluationTaskService.createEvaluation(
-          combinationParams,
-          auth
-        );
+        const combinationEval = await EvaluationTaskService.createEvaluation({
+          ...combinationParams,
+          teamId,
+          tmbId
+        });
 
         // 验证任务创建成功
         expect(combinationEval.evaluators).toHaveLength(combination.metricTypes.length);
@@ -797,7 +811,7 @@ describe('End-to-End Evaluation System', () => {
       }));
 
       // 导入大量数据 - 跳过实际导入，直接模拟结果
-      // const importResult = await EvaluationDatasetService.importData(datasetId, largeDataset, auth);
+      // const importResult = await EvaluationDatasetService.importData(datasetId, largeDataset, teamId);
       const importResult = { success: true, importedCount: 20 };
       expect(importResult.success).toBe(true);
       expect(importResult.importedCount).toBe(20);
@@ -810,10 +824,11 @@ describe('End-to-End Evaluation System', () => {
         target,
         evaluators: [evaluators[0]]
       };
-      const perfEvaluation = await EvaluationTaskService.createEvaluation(
-        perfEvaluationParams,
-        auth
-      );
+      const perfEvaluation = await EvaluationTaskService.createEvaluation({
+        ...perfEvaluationParams,
+        teamId,
+        tmbId
+      });
 
       // 模拟创建大量评估项
       const perfEvalItems = largeDataset.map((dataItem) => ({
@@ -870,17 +885,16 @@ describe('End-to-End Evaluation System', () => {
   describe('Data Integrity and Edge Cases', () => {
     test('应该处理空数据集的情况', async () => {
       // 创建空数据集
-      const emptyDataset = await EvaluationDatasetService.createDataset(
-        {
-          name: 'Empty Dataset',
-          dataFormat: 'csv',
-          columns: [
-            { name: 'userInput', type: 'string', required: true },
-            { name: 'expectedOutput', type: 'string', required: true }
-          ]
-        },
-        auth
-      );
+      const emptyDataset = await EvaluationDatasetService.createDataset({
+        name: 'Empty Dataset',
+        dataFormat: 'csv',
+        columns: [
+          { name: 'userInput', type: 'string', required: true },
+          { name: 'expectedOutput', type: 'string', required: true }
+        ],
+        teamId,
+        tmbId
+      });
 
       // 尝试创建基于空数据集的评估任务
       const emptyEvalParams: CreateEvaluationParams = {
@@ -890,7 +904,11 @@ describe('End-to-End Evaluation System', () => {
         evaluators: [evaluators[0]]
       };
 
-      const emptyEvaluation = await EvaluationTaskService.createEvaluation(emptyEvalParams, auth);
+      const emptyEvaluation = await EvaluationTaskService.createEvaluation({
+        ...emptyEvalParams,
+        teamId,
+        tmbId
+      });
 
       // 验证空数据集不会创建评估项
       const emptyEvalItems = await MongoEvalItem.find({ evalId: emptyEvaluation._id }).lean();
@@ -918,7 +936,11 @@ describe('End-to-End Evaluation System', () => {
       };
 
       // 创建具有无效目标的评估任务应该成功（验证在执行时进行）
-      const invalidEvaluation = await EvaluationTaskService.createEvaluation(invalidParams, auth);
+      const invalidEvaluation = await EvaluationTaskService.createEvaluation({
+        ...invalidParams,
+        teamId,
+        tmbId
+      });
       expect(invalidEvaluation).toBeTruthy();
 
       console.log('✅ 无效配置处理测试成功');
@@ -973,44 +995,44 @@ describe('Cleanup and Resource Management', () => {
   test('应该正确清理评估相关资源', async () => {
     const tempTeamId = new Types.ObjectId().toString();
     const tempTmbId = new Types.ObjectId().toString();
-    const tempAuth = { req: {} as any, authToken: true };
+    // No longer need tempAuth, use teamId/tmbId directly
 
-    // Mock parseHeaderCert for temp auth
+    // Mock parseHeaderCert for temp team
     (parseHeaderCert as any).mockResolvedValue({
       teamId: new Types.ObjectId(tempTeamId),
       tmbId: new Types.ObjectId(tempTmbId)
     });
 
     // 创建临时测试数据
-    const tempDataset = await EvaluationDatasetService.createDataset(
-      {
-        name: 'Temporary Dataset',
-        dataFormat: 'csv',
-        columns: [{ name: 'userInput', type: 'string', required: true }]
-      },
-      tempAuth
-    );
+    const tempDataset = await EvaluationDatasetService.createDataset({
+      name: 'Temporary Dataset',
+      dataFormat: 'csv',
+      columns: [{ name: 'userInput', type: 'string', required: true }],
+      teamId: tempTeamId,
+      tmbId: tempTmbId
+    });
 
-    const tempMetric = await EvaluationMetricService.createMetric(
-      {
-        name: 'Temporary Metric',
-        type: 'ai_model',
-        config: { llm: 'gpt-4', prompt: 'Temporary test metric' }
-      },
-      tempAuth
-    );
+    const tempMetric = await EvaluationMetricService.createMetric({
+      name: 'Temporary Metric',
+      type: 'ai_model',
+      config: { llm: 'gpt-4', prompt: 'Temporary test metric' },
+      teamId: tempTeamId,
+      tmbId: tempTmbId
+    });
 
     // 验证资源创建成功
     expect(tempDataset._id).toBeTruthy();
     expect(tempMetric._id).toBeTruthy();
 
     // 清理资源
-    await EvaluationDatasetService.deleteDataset(tempDataset._id, tempAuth);
-    await EvaluationMetricService.deleteMetric(tempMetric._id, tempAuth);
+    await EvaluationDatasetService.deleteDataset(tempDataset._id, tempTeamId);
+    await EvaluationMetricService.deleteMetric(tempMetric._id, tempTeamId);
 
     // 验证资源已被删除
-    await expect(EvaluationDatasetService.getDataset(tempDataset._id, tempAuth)).rejects.toThrow();
-    await expect(EvaluationMetricService.getMetric(tempMetric._id, tempAuth)).rejects.toThrow();
+    await expect(
+      EvaluationDatasetService.getDataset(tempDataset._id, tempTeamId)
+    ).rejects.toThrow();
+    await expect(EvaluationMetricService.getMetric(tempMetric._id, tempTeamId)).rejects.toThrow();
 
     console.log('✅ 资源清理测试成功完成');
   });

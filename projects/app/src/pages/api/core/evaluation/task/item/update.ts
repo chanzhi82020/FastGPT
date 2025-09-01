@@ -7,6 +7,7 @@ import type {
   UpdateEvaluationItemResponse
 } from '@fastgpt/global/core/evaluation/api';
 import { addLog } from '@fastgpt/service/common/system/log';
+import { validateEvaluationItemWrite } from '@fastgpt/service/core/evaluation/common';
 
 async function handler(
   req: ApiRequestProps<UpdateEvaluationItemRequest>
@@ -30,10 +31,14 @@ async function handler(
       }
     }
 
-    await EvaluationTaskService.updateEvaluationItem(evalItemId, updates, {
+    // API层权限验证: 评估项目写权限
+    const { teamId } = await validateEvaluationItemWrite(evalItemId, {
       req,
       authToken: true
     });
+
+    // Service层业务逻辑
+    await EvaluationTaskService.updateEvaluationItem(evalItemId, updates, teamId);
 
     addLog.info('[Evaluation] Evaluation item updated successfully', {
       evalItemId,

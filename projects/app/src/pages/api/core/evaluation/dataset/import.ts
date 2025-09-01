@@ -3,6 +3,7 @@ import { jsonRes } from '@fastgpt/service/common/response';
 import { EvaluationDatasetService } from '@fastgpt/service/core/evaluation/dataset';
 import { getUploadModel } from '@fastgpt/service/common/file/multer';
 import { addLog } from '@fastgpt/service/common/system/log';
+import { validateEvaluationDatasetWrite } from '@fastgpt/service/core/evaluation/common';
 import fs from 'fs';
 
 export const config = {
@@ -34,6 +35,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
+    // API层权限验证: 评估数据集写权限
+    const { teamId } = await validateEvaluationDatasetWrite(datasetId, {
+      req,
+      authToken: true
+    });
+
     addLog.info('[Evaluation Dataset] Starting data import', {
       datasetId,
       fileName: file.originalname,
@@ -41,16 +48,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       mimeType: file.mimetype
     });
 
+    // Service层业务逻辑
     const fileContent = fs.readFileSync(file.path);
     const result = await EvaluationDatasetService.importDataFromFile(
       datasetId,
       fileContent,
       file.originalname || '',
       file.mimetype || '',
-      {
-        req,
-        authToken: true
-      }
+      teamId
     );
 
     try {

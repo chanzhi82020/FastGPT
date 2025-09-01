@@ -7,6 +7,7 @@ import type {
 } from '@fastgpt/global/core/evaluation/api';
 import { addLog } from '@fastgpt/service/common/system/log';
 import { validateEvaluationParams } from '@fastgpt/global/core/evaluation/utils';
+import { validateEvaluationDatasetCreate } from '@fastgpt/service/core/evaluation/common';
 
 async function handler(req: ApiRequestProps<CreateDatasetRequest>): Promise<CreateDatasetResponse> {
   try {
@@ -42,18 +43,21 @@ async function handler(req: ApiRequestProps<CreateDatasetRequest>): Promise<Crea
       return Promise.reject('Duplicate column names are not allowed');
     }
 
-    const dataset = await EvaluationDatasetService.createDataset(
-      {
-        name: name.trim(),
-        description: description?.trim(),
-        dataFormat: dataFormat || 'csv',
-        columns
-      },
-      {
-        req,
-        authToken: true
-      }
-    );
+    // API层权限验证: 团队评估创建权限
+    const { teamId, tmbId } = await validateEvaluationDatasetCreate({
+      req,
+      authToken: true
+    });
+
+    // Service层业务逻辑
+    const dataset = await EvaluationDatasetService.createDataset({
+      name: name.trim(),
+      description: description?.trim(),
+      dataFormat: dataFormat || 'csv',
+      columns,
+      teamId,
+      tmbId
+    });
 
     addLog.info('[Evaluation Dataset] Dataset created successfully', {
       datasetId: dataset._id,
