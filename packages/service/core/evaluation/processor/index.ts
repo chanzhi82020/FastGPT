@@ -218,18 +218,21 @@ const finishEvaluationTask = async (evalId: string) => {
 };
 
 // Handle evaluation item error
-const handleEvalItemError = async (evalItemId: string, error: any) => {
+const handleEvalItemError = async (evalItemId: string, evalId: string, error: any) => {
   const errorMessage = getErrText(error);
 
   // Get current retry count
-  const evalItem = await MongoEvalItem.findById(evalItemId, 'retry');
+  const evalItem = await MongoEvalItem.findById(evalItemId, 'retry evalId');
   if (!evalItem) {
     addLog.error(`[Evaluation] Evaluation item does not exist: ${evalItemId}`);
     return;
   }
 
-  const newRetryCount = isRetriableError(error) ? evalItem.retry - 1 : 0;
-  const newStatus = newRetryCount > 0 ? EvaluationStatusEnum.queuing : EvaluationStatusEnum.error;
+  const isRetriable = isRetriableError(error);
+  const currentRetryCount = evalItem.retry || 3; // Default to 3 if not set
+  const newRetryCount = isRetriable ? Math.max(currentRetryCount - 1, 0) : 0;
+  const shouldRetry = isRetriable && newRetryCount > 0;
+  const newStatus = shouldRetry ? EvaluationStatusEnum.queuing : EvaluationStatusEnum.error;
 
   await MongoEvalItem.updateOne(
     { _id: new Types.ObjectId(evalItemId) },
@@ -238,15 +241,39 @@ const handleEvalItemError = async (evalItemId: string, error: any) => {
         retry: newRetryCount,
         errorMessage,
         status: newStatus,
-        finishTime: newStatus === EvaluationStatusEnum.error ? new Date() : undefined
+        finishTime: newStatus === EvaluationStatusEnum.error ? new Date() : undefined,
+        // Clear partial results to allow clean retry
+        ...(shouldRetry && {
+          targetOutput: null,
+          evaluatorOutput: null
+        })
       }
     }
   );
 
-  addLog.error(
-    `[Evaluation] Evaluation item processing failed: ${evalItemId}, remaining retries: ${newRetryCount}`,
-    error
-  );
+  // Critical fix: Re-enqueue for retry
+  if (shouldRetry) {
+    const retryDelay = Math.min(1000 * Math.pow(2, 3 - newRetryCount), 30000); // Exponential backoff
+    await evaluationItemQueue.add(
+      `eval_item_retry_${evalItemId}_${Date.now()}`,
+      {
+        evalId,
+        evalItemId
+      },
+      {
+        delay: retryDelay
+      }
+    );
+
+    addLog.info(
+      `[Evaluation] Item requeued for retry: ${evalItemId}, remaining: ${newRetryCount}, delay: ${retryDelay}ms`
+    );
+  } else {
+    addLog.error(
+      `[Evaluation] Item failed permanently: ${evalItemId}, retriable: ${isRetriable}`,
+      error
+    );
+  }
 };
 
 // Create merged evaluation usage record
@@ -538,7 +565,7 @@ const evaluationItemProcessor = async (job: Job<EvaluationItemJobData>) => {
       `[Evaluation] Evaluation item completed: ${evalItemId}, score: ${evaluatorOutput.score}`
     );
   } catch (error) {
-    await handleEvalItemError(evalItemId, error);
+    await handleEvalItemError(evalItemId, evalId, error);
 
     // If AI Points insufficient, pause entire task
     if (error === TeamErrEnum.aiPointsNotEnough) {
@@ -563,3 +590,6 @@ const evaluationItemProcessor = async (job: Job<EvaluationItemJobData>) => {
     );
   }
 };
+
+// Export for testing
+export { evaluationTaskProcessor, evaluationItemProcessor, finishEvaluationTask };

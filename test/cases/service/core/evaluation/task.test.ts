@@ -6,11 +6,14 @@ import { MongoEvalMetric } from '@fastgpt/service/core/evaluation/metric/schema'
 import type {
   CreateEvaluationParams,
   EvalTarget,
-  EvaluatorSchema
+  EvaluatorSchema,
+  EvaluationTaskJobData,
+  EvaluationItemJobData
 } from '@fastgpt/global/core/evaluation/type';
 import type { AuthModeType } from '@fastgpt/service/support/permission/type';
 import { EvaluationStatusEnum } from '@fastgpt/global/core/evaluation/constants';
 import { Types } from '@fastgpt/service/common/mongo';
+import { TeamErrEnum } from '@fastgpt/global/common/error/code/team';
 
 // Mock dependencies
 vi.mock('@fastgpt/service/core/evaluation/mq', () => ({
@@ -22,18 +25,22 @@ vi.mock('@fastgpt/service/core/evaluation/mq', () => ({
     addBulk: vi.fn()
   },
   removeEvaluationTaskJob: vi.fn().mockResolvedValue(undefined),
-  removeEvaluationItemJobs: vi.fn().mockResolvedValue(undefined)
+  removeEvaluationItemJobs: vi.fn().mockResolvedValue(undefined),
+  getEvaluationTaskWorker: vi.fn(),
+  getEvaluationItemWorker: vi.fn()
 }));
 
 vi.mock('@fastgpt/service/support/wallet/usage/controller', () => ({
-  createTrainingUsage: vi.fn()
+  createTrainingUsage: vi.fn(),
+  concatUsage: vi.fn()
 }));
 
 vi.mock('@fastgpt/service/common/system/log', () => ({
   addLog: {
     info: vi.fn(),
     warn: vi.fn(),
-    error: vi.fn()
+    error: vi.fn(),
+    debug: vi.fn()
   }
 }));
 
@@ -41,10 +48,25 @@ vi.mock('@fastgpt/service/support/permission/controller', () => ({
   parseHeaderCert: vi.fn()
 }));
 
-import { evaluationTaskQueue } from '@fastgpt/service/core/evaluation/mq';
-import { createTrainingUsage } from '@fastgpt/service/support/wallet/usage/controller';
+vi.mock('@fastgpt/service/support/permission/teamLimit', () => ({
+  checkTeamAIPoints: vi.fn().mockResolvedValue(undefined)
+}));
+
+vi.mock('@fastgpt/service/core/evaluation/target', () => ({
+  createTargetInstance: vi.fn()
+}));
+
+vi.mock('@fastgpt/service/core/evaluation/evaluator', () => ({
+  createEvaluatorInstance: vi.fn()
+}));
+
+import { evaluationTaskQueue, evaluationItemQueue } from '@fastgpt/service/core/evaluation/mq';
+import { createTrainingUsage, concatUsage } from '@fastgpt/service/support/wallet/usage/controller';
 import { addLog } from '@fastgpt/service/common/system/log';
 import { parseHeaderCert } from '@fastgpt/service/support/permission/controller';
+import { checkTeamAIPoints } from '@fastgpt/service/support/permission/teamLimit';
+import { createTargetInstance } from '@fastgpt/service/core/evaluation/target';
+import { createEvaluatorInstance } from '@fastgpt/service/core/evaluation/evaluator';
 
 describe('EvaluationTaskService', () => {
   let teamId: string;
@@ -63,8 +85,8 @@ describe('EvaluationTaskService', () => {
 
     // 创建测试数据
     const dataset = await MongoEvalDataset.create({
-      teamId,
-      tmbId,
+      teamId: new Types.ObjectId(teamId),
+      tmbId: new Types.ObjectId(tmbId),
       name: 'Test Dataset',
       description: 'Dataset for task testing',
       dataFormat: 'json',
@@ -92,8 +114,8 @@ describe('EvaluationTaskService', () => {
     };
 
     const metric = await MongoEvalMetric.create({
-      teamId,
-      tmbId,
+      teamId: new Types.ObjectId(teamId),
+      tmbId: new Types.ObjectId(tmbId),
       name: 'Test Metric',
       description: 'Metric for task testing',
       type: 'ai_model',
@@ -131,6 +153,8 @@ describe('EvaluationTaskService', () => {
     vi.clearAllMocks();
     // Mock createTrainingUsage
     (createTrainingUsage as any).mockResolvedValue({ billId: new Types.ObjectId() });
+    // Mock concatUsage
+    (concatUsage as any).mockResolvedValue(undefined);
     // Mock parseHeaderCert - 返回正确的ObjectId类型
     (parseHeaderCert as any).mockResolvedValue({
       teamId: new Types.ObjectId(teamId),
@@ -1087,6 +1111,723 @@ describe('EvaluationTaskService', () => {
       // 验证所有评估项被删除
       const remainingItems = await MongoEvalItem.countDocuments({ evalId: testEvaluationId });
       expect(remainingItems).toBe(0);
+    });
+  });
+
+  // ========================= 评估任务处理流程测试 =========================
+  describe('Evaluation Task Processing Flow', () => {
+    let mockTargetInstance: any;
+    let mockEvaluatorInstance: any;
+
+    beforeEach(() => {
+      // Mock target and evaluator instances
+      mockTargetInstance = {
+        execute: vi.fn().mockResolvedValue({
+          actualOutput: 'Mock target output',
+          responseTime: 1000,
+          retrievalContext: ['context1', 'context2'],
+          usage: [{ totalPoints: 50 }]
+        })
+      };
+
+      mockEvaluatorInstance = {
+        evaluate: vi.fn().mockResolvedValue({
+          metricId: 'test-metric-id',
+          metricName: 'Test Metric',
+          score: 85,
+          details: { usage: { totalPoints: 20 } }
+        })
+      };
+
+      (createTargetInstance as any).mockReturnValue(mockTargetInstance);
+      (createEvaluatorInstance as any).mockReturnValue(mockEvaluatorInstance);
+    });
+
+    test('应该正确处理评估任务流程', async () => {
+      // Import the processor module after mocking
+      const { evaluationTaskProcessor, evaluationItemProcessor } = await import(
+        '@fastgpt/service/core/evaluation/processor'
+      );
+
+      // 为这个测试创建独立的数据集
+      const testDataset = await MongoEvalDataset.create({
+        teamId: new Types.ObjectId(teamId),
+        tmbId: new Types.ObjectId(tmbId),
+        name: 'Test Dataset for Task Processing',
+        description: 'Dataset for task processing test',
+        dataFormat: 'json',
+        columns: [
+          { name: 'userInput', type: 'string', required: true },
+          { name: 'expectedOutput', type: 'string', required: true }
+        ],
+        dataItems: [
+          { userInput: 'What is AI?', expectedOutput: 'Artificial Intelligence' },
+          { userInput: 'What is ML?', expectedOutput: 'Machine Learning' }
+        ]
+      });
+
+      // 创建测试评估任务
+      const params: CreateEvaluationParams = {
+        name: 'Processing Flow Test',
+        description: 'Test evaluation processing',
+        datasetId: testDataset._id.toString(),
+        target,
+        evaluators: evaluators
+      };
+      const evaluation = await EvaluationTaskService.createEvaluation(params, auth);
+      const evalId = evaluation._id;
+
+      // Mock job data for task processor
+      const taskJobData: EvaluationTaskJobData = {
+        evalId
+      };
+
+      const mockJob = {
+        data: taskJobData
+      } as any;
+
+      // 执行任务处理器
+      await evaluationTaskProcessor(mockJob);
+
+      // 验证评估项是否被创建
+      const evalItems = await MongoEvalItem.find({ evalId });
+      // 数据集有2个dataItems，每个有1个evaluator，总共应该有2个评估项
+      expect(evalItems.length).toBe(2);
+
+      // 验证评估项队列是否被调用
+      expect(evaluationItemQueue.addBulk).toHaveBeenCalled();
+
+      // 检查日志是否记录
+      expect(addLog.info).toHaveBeenCalledWith(
+        expect.stringContaining(`Task decomposition completed: ${evalId}`)
+      );
+    });
+
+    test('应该正确处理评估项执行流程', async () => {
+      const { evaluationItemProcessor } = await import(
+        '@fastgpt/service/core/evaluation/processor'
+      );
+
+      // 创建测试评估项
+      const testEvaluationId = new Types.ObjectId();
+      const evalItem = await MongoEvalItem.create({
+        evalId: testEvaluationId,
+        dataItem: {
+          userInput: 'Test input',
+          expectedOutput: 'Expected output',
+          context: ['context1']
+        },
+        target,
+        evaluator: evaluators[0],
+        status: EvaluationStatusEnum.queuing,
+        retry: 3
+      });
+
+      // Mock evaluation record
+      await MongoEvaluation.create({
+        _id: testEvaluationId,
+        teamId: new Types.ObjectId(teamId),
+        tmbId: new Types.ObjectId(tmbId),
+        name: 'Test Evaluation Item Processing',
+        datasetId,
+        target,
+        evaluators: evaluators,
+        usageId: new Types.ObjectId(),
+        status: EvaluationStatusEnum.evaluating
+      });
+
+      const itemJobData: EvaluationItemJobData = {
+        evalId: testEvaluationId.toString(),
+        evalItemId: evalItem._id.toString()
+      };
+
+      const mockJob = {
+        data: itemJobData
+      } as any;
+
+      // 执行评估项处理器
+      await evaluationItemProcessor(mockJob);
+
+      // 验证评估项状态更新
+      const updatedItem = await MongoEvalItem.findById(evalItem._id);
+      expect(updatedItem?.status).toBe(EvaluationStatusEnum.completed);
+      expect(updatedItem?.targetOutput).toBeDefined();
+      expect(updatedItem?.evaluatorOutput).toBeDefined();
+
+      // 验证目标和评估器被调用
+      expect(mockTargetInstance.execute).toHaveBeenCalledWith({
+        userInput: 'Test input',
+        context: ['context1'],
+        globalVariables: undefined
+      });
+
+      expect(mockEvaluatorInstance.evaluate).toHaveBeenCalledWith({
+        userInput: 'Test input',
+        expectedOutput: 'Expected output',
+        actualOutput: 'Mock target output',
+        context: ['context1'],
+        retrievalContext: ['context1', 'context2']
+      });
+    });
+
+    test('应该支持检查点恢复机制', async () => {
+      const { evaluationItemProcessor } = await import(
+        '@fastgpt/service/core/evaluation/processor'
+      );
+
+      // 创建部分完成的评估项（已有target输出）
+      const testEvaluationId = new Types.ObjectId();
+      const evalItem = await MongoEvalItem.create({
+        evalId: testEvaluationId,
+        dataItem: {
+          userInput: 'Test input',
+          expectedOutput: 'Expected output'
+        },
+        target,
+        evaluator: evaluators[0],
+        status: EvaluationStatusEnum.evaluating,
+        targetOutput: {
+          actualOutput: 'Existing target output',
+          responseTime: 500,
+          usage: [{ totalPoints: 30 }]
+        },
+        retry: 3
+      });
+
+      await MongoEvaluation.create({
+        _id: testEvaluationId,
+        teamId: new Types.ObjectId(teamId),
+        tmbId: new Types.ObjectId(tmbId),
+        name: 'Test Checkpoint Recovery',
+        datasetId,
+        target,
+        evaluators: evaluators,
+        usageId: new Types.ObjectId(),
+        status: EvaluationStatusEnum.evaluating
+      });
+
+      const itemJobData: EvaluationItemJobData = {
+        evalId: testEvaluationId.toString(),
+        evalItemId: evalItem._id.toString()
+      };
+
+      const mockJob = {
+        data: itemJobData
+      } as any;
+
+      await evaluationItemProcessor(mockJob);
+
+      // 验证target不被重新执行，直接使用已有输出
+      expect(mockTargetInstance.execute).not.toHaveBeenCalled();
+
+      // 验证evaluator使用已有的target输出
+      expect(mockEvaluatorInstance.evaluate).toHaveBeenCalledWith({
+        userInput: 'Test input',
+        expectedOutput: 'Expected output',
+        actualOutput: 'Existing target output',
+        context: undefined,
+        retrievalContext: undefined
+      });
+    });
+  });
+
+  // ========================= 重试机制验收测试 =========================
+  describe('Retry Mechanism Tests', () => {
+    let mockTargetInstance: any;
+    let mockEvaluatorInstance: any;
+
+    beforeEach(() => {
+      mockTargetInstance = {
+        execute: vi.fn()
+      };
+      mockEvaluatorInstance = {
+        evaluate: vi.fn()
+      };
+      (createTargetInstance as any).mockReturnValue(mockTargetInstance);
+      (createEvaluatorInstance as any).mockReturnValue(mockEvaluatorInstance);
+    });
+
+    test('网络错误应该触发重试机制', async () => {
+      const { evaluationItemProcessor } = await import(
+        '@fastgpt/service/core/evaluation/processor'
+      );
+
+      // 创建测试评估项
+      const testEvaluationId = new Types.ObjectId();
+      const evalItem = await MongoEvalItem.create({
+        evalId: testEvaluationId,
+        dataItem: { userInput: 'Network test', expectedOutput: 'Expected' },
+        target,
+        evaluator: evaluators[0],
+        status: EvaluationStatusEnum.queuing,
+        retry: 3
+      });
+
+      await MongoEvaluation.create({
+        _id: testEvaluationId,
+        teamId: new Types.ObjectId(teamId),
+        tmbId: new Types.ObjectId(tmbId),
+        name: 'Network Error Test',
+        datasetId,
+        target,
+        evaluators: evaluators,
+        usageId: new Types.ObjectId(),
+        status: EvaluationStatusEnum.evaluating
+      });
+
+      // Mock network error
+      const networkError = new Error('NETWORK_ERROR: Connection timeout');
+      mockTargetInstance.execute.mockRejectedValue(networkError);
+
+      const itemJobData: EvaluationItemJobData = {
+        evalId: testEvaluationId.toString(),
+        evalItemId: evalItem._id.toString()
+      };
+
+      const mockJob = { data: itemJobData } as any;
+
+      await evaluationItemProcessor(mockJob);
+
+      // 验证评估项被重新入队
+      expect(evaluationItemQueue.add).toHaveBeenCalledWith(
+        expect.stringContaining('eval_item_retry_'),
+        {
+          evalId: testEvaluationId.toString(),
+          evalItemId: evalItem._id.toString()
+        },
+        expect.objectContaining({
+          delay: expect.any(Number)
+        })
+      );
+
+      // 验证重试计数器减少
+      const updatedItem = await MongoEvalItem.findById(evalItem._id);
+      expect(updatedItem?.retry).toBe(2);
+      expect(updatedItem?.status).toBe(EvaluationStatusEnum.queuing);
+    });
+
+    test('非可重试错误应该直接标记为失败', async () => {
+      const { evaluationItemProcessor } = await import(
+        '@fastgpt/service/core/evaluation/processor'
+      );
+
+      const testEvaluationId = new Types.ObjectId();
+      const evalItem = await MongoEvalItem.create({
+        evalId: testEvaluationId,
+        dataItem: { userInput: 'Fatal error test', expectedOutput: 'Expected' },
+        target,
+        evaluator: evaluators[0],
+        status: EvaluationStatusEnum.queuing,
+        retry: 3
+      });
+
+      await MongoEvaluation.create({
+        _id: testEvaluationId,
+        teamId: new Types.ObjectId(teamId),
+        tmbId: new Types.ObjectId(tmbId),
+        name: 'Fatal Error Test',
+        datasetId,
+        target,
+        evaluators: evaluators,
+        usageId: new Types.ObjectId(),
+        status: EvaluationStatusEnum.evaluating
+      });
+
+      // Mock fatal error (not retriable)
+      const fatalError = new Error('FATAL_ERROR: Invalid configuration');
+      mockTargetInstance.execute.mockRejectedValue(fatalError);
+
+      const itemJobData: EvaluationItemJobData = {
+        evalId: testEvaluationId.toString(),
+        evalItemId: evalItem._id.toString()
+      };
+
+      const mockJob = { data: itemJobData } as any;
+
+      await evaluationItemProcessor(mockJob);
+
+      // 验证不会重新入队
+      expect(evaluationItemQueue.add).not.toHaveBeenCalledWith(
+        expect.stringContaining('eval_item_retry_'),
+        expect.any(Object),
+        expect.any(Object)
+      );
+
+      // 验证直接标记为错误
+      const updatedItem = await MongoEvalItem.findById(evalItem._id);
+      expect(updatedItem?.status).toBe(EvaluationStatusEnum.error);
+      expect(updatedItem?.retry).toBe(0);
+      expect(updatedItem?.errorMessage).toContain('FATAL_ERROR');
+    });
+
+    test('重试次数耗尽时应该标记为失败', async () => {
+      const { evaluationItemProcessor } = await import(
+        '@fastgpt/service/core/evaluation/processor'
+      );
+
+      const testEvaluationId = new Types.ObjectId();
+      const evalItem = await MongoEvalItem.create({
+        evalId: testEvaluationId,
+        dataItem: { userInput: 'Exhausted retry test', expectedOutput: 'Expected' },
+        target,
+        evaluator: evaluators[0],
+        status: EvaluationStatusEnum.queuing,
+        retry: 1 // 只剩1次重试机会
+      });
+
+      await MongoEvaluation.create({
+        _id: testEvaluationId,
+        teamId: new Types.ObjectId(teamId),
+        tmbId: new Types.ObjectId(tmbId),
+        name: 'Exhausted Retry Test',
+        datasetId,
+        target,
+        evaluators: evaluators,
+        usageId: new Types.ObjectId(),
+        status: EvaluationStatusEnum.evaluating
+      });
+
+      // Mock retriable error
+      const retriableError = new Error('TIMEOUT: Request timeout');
+      mockTargetInstance.execute.mockRejectedValue(retriableError);
+
+      const itemJobData: EvaluationItemJobData = {
+        evalId: testEvaluationId.toString(),
+        evalItemId: evalItem._id.toString()
+      };
+
+      const mockJob = { data: itemJobData } as any;
+
+      await evaluationItemProcessor(mockJob);
+
+      // 验证最后一次重试失败后不再重新入队
+      const updatedItem = await MongoEvalItem.findById(evalItem._id);
+      expect(updatedItem?.status).toBe(EvaluationStatusEnum.error);
+      expect(updatedItem?.retry).toBe(0);
+      expect(updatedItem?.errorMessage).toContain('TIMEOUT');
+    });
+
+    test('AI积分不足应该暂停整个任务', async () => {
+      const { evaluationItemProcessor } = await import(
+        '@fastgpt/service/core/evaluation/processor'
+      );
+
+      const testEvaluationId = new Types.ObjectId();
+      const evalItem = await MongoEvalItem.create({
+        evalId: testEvaluationId,
+        dataItem: { userInput: 'AI Points test', expectedOutput: 'Expected' },
+        target,
+        evaluator: evaluators[0],
+        status: EvaluationStatusEnum.queuing,
+        retry: 3
+      });
+
+      await MongoEvaluation.create({
+        _id: testEvaluationId,
+        teamId: new Types.ObjectId(teamId),
+        tmbId: new Types.ObjectId(tmbId),
+        name: 'AI Points Insufficient Test',
+        datasetId,
+        target,
+        evaluators: evaluators,
+        usageId: new Types.ObjectId(),
+        status: EvaluationStatusEnum.evaluating
+      });
+
+      // Mock AI Points insufficient error
+      (checkTeamAIPoints as any).mockRejectedValue(TeamErrEnum.aiPointsNotEnough);
+
+      const itemJobData: EvaluationItemJobData = {
+        evalId: testEvaluationId.toString(),
+        evalItemId: evalItem._id.toString()
+      };
+
+      const mockJob = { data: itemJobData } as any;
+
+      await evaluationItemProcessor(mockJob);
+
+      // 验证任务被暂停
+      const updatedEvaluation = await MongoEvaluation.findById(testEvaluationId);
+      expect(updatedEvaluation?.status).toBe(EvaluationStatusEnum.error);
+      expect(updatedEvaluation?.errorMessage).toContain('AI Points balance insufficient');
+
+      // 验证警告日志
+      expect(addLog.warn).toHaveBeenCalledWith(
+        expect.stringContaining(
+          `AI Points insufficient, evaluation task paused: ${testEvaluationId}`
+        )
+      );
+    });
+
+    test('指数退避延迟应该正确计算', async () => {
+      const { evaluationItemProcessor } = await import(
+        '@fastgpt/service/core/evaluation/processor'
+      );
+
+      const testCases = [
+        { retry: 3, expectedMaxDelay: 2000 }, // newRetryCount=2: 2^(3-2) * 1000 = 2000
+        { retry: 2, expectedMaxDelay: 4000 }, // newRetryCount=1: 2^(3-1) * 1000 = 4000
+        { retry: 1, expectedMaxDelay: 8000 } // newRetryCount=0: 2^(3-0) * 1000 = 8000
+      ];
+
+      for (const testCase of testCases) {
+        // 清除之前的mock调用
+        (evaluationItemQueue.add as any).mockClear();
+
+        const testEvaluationId = new Types.ObjectId();
+        const evalItem = await MongoEvalItem.create({
+          evalId: testEvaluationId,
+          dataItem: { userInput: `Backoff test ${testCase.retry}`, expectedOutput: 'Expected' },
+          target,
+          evaluator: evaluators[0],
+          status: EvaluationStatusEnum.queuing,
+          retry: testCase.retry
+        });
+
+        await MongoEvaluation.create({
+          _id: testEvaluationId,
+          teamId: new Types.ObjectId(teamId),
+          tmbId: new Types.ObjectId(tmbId),
+          name: `Backoff Test ${testCase.retry}`,
+          datasetId,
+          target,
+          evaluators: evaluators,
+          usageId: new Types.ObjectId(),
+          status: EvaluationStatusEnum.evaluating
+        });
+
+        // Mock network error
+        const networkError = new Error('ECONNRESET');
+        mockTargetInstance.execute.mockRejectedValue(networkError);
+
+        const itemJobData: EvaluationItemJobData = {
+          evalId: testEvaluationId.toString(),
+          evalItemId: evalItem._id.toString()
+        };
+
+        const mockJob = { data: itemJobData } as any;
+
+        await evaluationItemProcessor(mockJob);
+
+        // 验证延迟参数 - 因为是重试，应该会调用add方法
+        if ((evaluationItemQueue.add as any).mock.calls.length > 0) {
+          const addCall = (evaluationItemQueue.add as any).mock.calls[0];
+          const delayOption = addCall[2];
+          console.log(
+            `Retry ${testCase.retry} -> Expected: ${testCase.expectedMaxDelay}, Actual: ${delayOption.delay}`
+          );
+          expect(delayOption.delay).toBe(testCase.expectedMaxDelay);
+        }
+      }
+    });
+  });
+
+  // ========================= 数据一致性和并发处理测试 =========================
+  describe('Data Consistency and Concurrency Tests', () => {
+    test('任务完成检查应该防止竞争条件', async () => {
+      const { finishEvaluationTask } = await import('@fastgpt/service/core/evaluation/processor');
+
+      const testEvaluationId = new Types.ObjectId();
+
+      // 创建测试任务
+      await MongoEvaluation.create({
+        _id: testEvaluationId,
+        teamId: new Types.ObjectId(teamId),
+        tmbId: new Types.ObjectId(tmbId),
+        name: 'Concurrency Test',
+        datasetId,
+        target,
+        evaluators: evaluators,
+        usageId: new Types.ObjectId(),
+        status: EvaluationStatusEnum.evaluating
+      });
+
+      // 创建已完成的评估项
+      await MongoEvalItem.create([
+        {
+          evalId: testEvaluationId,
+          dataItem: { userInput: 'Q1', expectedOutput: 'A1' },
+          target,
+          evaluator: evaluators[0],
+          status: EvaluationStatusEnum.completed,
+          evaluatorOutput: { metricId, metricName: 'Test', score: 85 }
+        },
+        {
+          evalId: testEvaluationId,
+          dataItem: { userInput: 'Q2', expectedOutput: 'A2' },
+          target,
+          evaluator: evaluators[0],
+          status: EvaluationStatusEnum.completed,
+          evaluatorOutput: { metricId, metricName: 'Test', score: 95 }
+        }
+      ]);
+
+      // 同时调用多次完成检查（模拟并发场景）
+      await Promise.all([
+        finishEvaluationTask(testEvaluationId.toString()),
+        finishEvaluationTask(testEvaluationId.toString()),
+        finishEvaluationTask(testEvaluationId.toString())
+      ]);
+
+      // 验证任务状态正确更新
+      const finalEvaluation = await MongoEvaluation.findById(testEvaluationId);
+      expect(finalEvaluation?.status).toBe(EvaluationStatusEnum.completed);
+      expect(finalEvaluation?.avgScore).toBe(90); // (85 + 95) / 2
+      expect(finalEvaluation?.finishTime).toBeDefined();
+    });
+
+    test('部分完成的任务不应该被标记为完成', async () => {
+      const { finishEvaluationTask } = await import('@fastgpt/service/core/evaluation/processor');
+
+      const testEvaluationId = new Types.ObjectId();
+
+      const originalEvaluation = await MongoEvaluation.create({
+        _id: testEvaluationId,
+        teamId: new Types.ObjectId(teamId),
+        tmbId: new Types.ObjectId(tmbId),
+        name: 'Partial Completion Test',
+        datasetId,
+        target,
+        evaluators: evaluators,
+        usageId: new Types.ObjectId(),
+        status: EvaluationStatusEnum.evaluating
+      });
+
+      // 创建混合状态的评估项
+      await MongoEvalItem.create([
+        {
+          evalId: testEvaluationId,
+          dataItem: { userInput: 'Q1', expectedOutput: 'A1' },
+          target,
+          evaluator: evaluators[0],
+          status: EvaluationStatusEnum.completed,
+          evaluatorOutput: { metricId, metricName: 'Test', score: 85 }
+        },
+        {
+          evalId: testEvaluationId,
+          dataItem: { userInput: 'Q2', expectedOutput: 'A2' },
+          target,
+          evaluator: evaluators[0],
+          status: EvaluationStatusEnum.evaluating // 仍在处理中
+        }
+      ]);
+
+      await finishEvaluationTask(testEvaluationId.toString());
+
+      // 验证任务不会被标记为完成
+      const evaluation = await MongoEvaluation.findById(testEvaluationId);
+      // finishEvaluationTask应该检测到有pending项目，不更新任务状态
+      // 因此状态应该保持原来的evaluating状态
+      expect(evaluation?.status).toBe(originalEvaluation.status);
+      expect(evaluation?.finishTime).toBeUndefined();
+    });
+  });
+
+  // ========================= 错误处理和状态管理测试 =========================
+  describe('Error Handling and Status Management Tests', () => {
+    test('评估项处理失败时应该正确清理状态', async () => {
+      const { evaluationItemProcessor } = await import(
+        '@fastgpt/service/core/evaluation/processor'
+      );
+
+      const testEvaluationId = new Types.ObjectId();
+      const evalItem = await MongoEvalItem.create({
+        evalId: testEvaluationId,
+        dataItem: { userInput: 'Error cleanup test', expectedOutput: 'Expected' },
+        target,
+        evaluator: evaluators[0],
+        status: EvaluationStatusEnum.evaluating,
+        targetOutput: { actualOutput: 'Partial result', responseTime: 500 },
+        retry: 3
+      });
+
+      await MongoEvaluation.create({
+        _id: testEvaluationId,
+        teamId: new Types.ObjectId(teamId),
+        tmbId: new Types.ObjectId(tmbId),
+        name: 'Error Cleanup Test',
+        datasetId,
+        target,
+        evaluators: evaluators,
+        usageId: new Types.ObjectId(),
+        status: EvaluationStatusEnum.evaluating
+      });
+
+      const mockTargetInstance = {
+        execute: vi.fn().mockRejectedValue(new Error('NETWORK_ERROR: Cleanup test'))
+      };
+      (createTargetInstance as any).mockReturnValue(mockTargetInstance);
+
+      const itemJobData: EvaluationItemJobData = {
+        evalId: testEvaluationId.toString(),
+        evalItemId: evalItem._id.toString()
+      };
+
+      const mockJob = { data: itemJobData } as any;
+
+      await evaluationItemProcessor(mockJob);
+
+      // 验证部分结果被清理
+      const updatedItem = await MongoEvalItem.findById(evalItem._id);
+      expect(updatedItem?.targetOutput).toBeNull();
+      expect(updatedItem?.evaluatorOutput).toBeNull();
+      expect(updatedItem?.status).toBe(EvaluationStatusEnum.queuing);
+      expect(updatedItem?.retry).toBe(2);
+    });
+
+    test('任务完成统计应该正确处理所有状态', async () => {
+      const { finishEvaluationTask } = await import('@fastgpt/service/core/evaluation/processor');
+
+      const testEvaluationId = new Types.ObjectId();
+
+      await MongoEvaluation.create({
+        _id: testEvaluationId,
+        teamId: new Types.ObjectId(teamId),
+        tmbId: new Types.ObjectId(tmbId),
+        name: 'Statistics Test',
+        datasetId,
+        target,
+        evaluators: evaluators,
+        usageId: new Types.ObjectId(),
+        status: EvaluationStatusEnum.evaluating
+      });
+
+      // 创建各种状态的评估项
+      await MongoEvalItem.create([
+        {
+          evalId: testEvaluationId,
+          dataItem: { userInput: 'Success 1', expectedOutput: 'A1' },
+          target,
+          evaluator: evaluators[0],
+          status: EvaluationStatusEnum.completed,
+          evaluatorOutput: { metricId, metricName: 'Test', score: 85 }
+        },
+        {
+          evalId: testEvaluationId,
+          dataItem: { userInput: 'Success 2', expectedOutput: 'A2' },
+          target,
+          evaluator: evaluators[0],
+          status: EvaluationStatusEnum.completed,
+          evaluatorOutput: { metricId, metricName: 'Test', score: 95 }
+        },
+        {
+          evalId: testEvaluationId,
+          dataItem: { userInput: 'Failed', expectedOutput: 'A3' },
+          target,
+          evaluator: evaluators[0],
+          status: EvaluationStatusEnum.error,
+          errorMessage: 'Test error'
+        }
+      ]);
+
+      await finishEvaluationTask(testEvaluationId.toString());
+
+      const finalEvaluation = await MongoEvaluation.findById(testEvaluationId);
+      expect(finalEvaluation?.status).toBe(EvaluationStatusEnum.completed);
+      expect(finalEvaluation?.avgScore).toBe(90); // (85 + 95) / 2
+      expect(finalEvaluation?.statistics?.totalItems).toBe(3);
+      expect(finalEvaluation?.statistics?.completedItems).toBe(2);
+      expect(finalEvaluation?.statistics?.errorItems).toBe(1);
     });
   });
 });

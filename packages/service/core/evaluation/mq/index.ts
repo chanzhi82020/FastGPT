@@ -14,11 +14,7 @@ export const evaluationTaskQueue = getQueue<EvaluationTaskJobData>(QueueNames.ev
 
 export const evaluationItemQueue = getQueue<EvaluationItemJobData>(QueueNames.evaluation_item, {
   defaultJobOptions: {
-    attempts: 3,
-    backoff: {
-      type: 'exponential',
-      delay: 1000
-    },
+    attempts: 1, // Disable BullMQ retry, use manual retry mechanism instead
     removeOnComplete: 500,
     removeOnFail: 500
   }
