@@ -12,6 +12,11 @@ vi.mock('@fastgpt/service/core/evaluation/dataset/evalDatasetCollectionSchema', 
     countDocuments: vi.fn()
   }
 }));
+vi.mock('@fastgpt/service/core/evaluation/dataset/dataSynthesizeMq', () => ({
+  evalDatasetDataSynthesizeQueue: {
+    getJobs: vi.fn().mockResolvedValue([])
+  }
+}));
 
 const mockAuthUserPer = vi.mocked(authUserPer);
 const mockMongoEvalDatasetCollection = vi.mocked(MongoEvalDatasetCollection);

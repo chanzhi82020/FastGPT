@@ -1,0 +1,559 @@
+{
+  "info": {
+    "name": "FastGPT Evaluation API",
+    "description": "FastGPT 评估模块 API 接口集合，包括评估任务、数据集和指标管理",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "fastgptToken",
+      "value": "688c6661c744b647cf2fad5f:zk1nZvYW1n7Rs2eLlBGzDyf1wV5TzWuJ",
+      "type": "string"
+    },
+    {
+      "key": "cookieString",
+      "value": "NEXT_LOCALE=zh-CN; fastgpt_token={{fastgptToken}}; NEXT_DEVICE_SIZE=pc",
+      "type": "string"
+    },
+    {
+      "key": "evalId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "datasetId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "metricId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "appId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "评估任务管理",
+      "item": [
+        {
+          "name": "创建评估任务",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{cookieString}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/core/evaluation/task/create",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "core", "evaluation", "task", "create"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"测试评估任务\",\n  \"description\": \"这是一个测试评估任务的描述\",\n  \"datasetId\": \"{{datasetId}}\",\n  \"target\": {\n    \"type\": \"workflow\",\n    \"config\": {\n      \"appId\": \"{{appId}}\"\n    }\n  },\n  \"evaluators\": [\n    {\n      \"metric\": {\n        \"_id\": \"{{metricId}}\",\n        \"type\": \"ai_model\",\n        \"name\": \"测试指标\",\n        \"config\": {\n          \"model\": \"gpt-3.5-turbo\"\n        }\n      }\n    }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "获取评估任务列表",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{cookieString}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/core/evaluation/task/list",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "core", "evaluation", "task", "list"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pageNum\": 1,\n  \"pageSize\": 20,\n  \"searchKey\": \"\"\n}"
+            }
+          }
+        },
+        {
+          "name": "获取评估任务详情",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "{{cookieString}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/core/evaluation/task/detail?evalId={{evalId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "core", "evaluation", "task", "detail"],
+              "query": [
+                {
+                  "key": "evalId",
+                  "value": "{{evalId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "更新评估任务",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{cookieString}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/core/evaluation/task/update",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "core", "evaluation", "task", "update"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"evalId\": \"{{evalId}}\",\n  \"name\": \"更新后的评估任务名称\",\n  \"description\": \"更新后的描述\"\n}"
+            }
+          }
+        },
+        {
+          "name": "启动评估任务",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{cookieString}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/core/evaluation/task/start",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "core", "evaluation", "task", "start"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"evalId\": \"{{evalId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "停止评估任务",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{cookieString}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/core/evaluation/task/stop",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "core", "evaluation", "task", "stop"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"evalId\": \"{{evalId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "删除评估任务",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{cookieString}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/core/evaluation/task/delete",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "core", "evaluation", "task", "delete"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"evalId\": \"{{evalId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "获取评估项列表",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{cookieString}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/core/evaluation/task/item/list",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "core", "evaluation", "task", "item", "list"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"evalId\": \"{{evalId}}\",\n  \"pageNum\": 1,\n  \"pageSize\": 20\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "评估数据集管理",
+      "item": [
+        {
+          "name": "创建数据集",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{cookieString}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/core/evaluation/dataset/collection/create",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "core", "evaluation", "dataset", "collection", "create"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"测试数据集\",\n  \"description\": \"这是一个测试数据集的描述\"\n}"
+            }
+          }
+        },
+        {
+          "name": "获取数据集列表",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{cookieString}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/core/evaluation/dataset/collection/list",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "core", "evaluation", "dataset", "collection", "list"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pageNum\": 1,\n  \"pageSize\": 20,\n  \"searchKey\": \"\"\n}"
+            }
+          }
+        },
+        {
+          "name": "创建数据项",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{cookieString}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/core/evaluation/dataset/data/create",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "core", "evaluation", "dataset", "data", "create"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"collectionId\": \"{{datasetId}}\",\n  \"userInput\": \"什么是人工智能？\",\n  \"expectedOutput\": \"人工智能（AI）是计算机科学的一个分支，旨在创建能够执行通常需要人类智能的任务的智能机器。\",\n  \"actualOutput\": \"\",\n  \"context\": [\"背景信息1\", \"背景信息2\"],\n  \"retrievalContext\": [\"检索上下文1\", \"检索上下文2\"]\n}"
+            }
+          }
+        },
+        {
+          "name": "获取数据项列表",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{cookieString}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/core/evaluation/dataset/data/list",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "core", "evaluation", "dataset", "data", "list"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"collectionId\": \"{{datasetId}}\",\n  \"pageNum\": 1,\n  \"pageSize\": 20,\n  \"searchKey\": \"\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "评估指标管理",
+      "item": [
+        {
+          "name": "创建评估指标",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{cookieString}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/core/evaluation/metric/create",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "core", "evaluation", "metric", "create"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"测试指标\",\n  \"description\": \"这是一个基于AI模型的评估指标\",\n  \"type\": \"ai_model\",\n  \"config\": {\n    \"model\": \"gpt-3.5-turbo\",\n    \"prompt\": \"请根据用户输入、预期输出和实际输出来评估质量，给出0-10分的评分。\",\n    \"temperature\": 0.1\n  },\n  \"dependencies\": []\n}"
+            }
+          }
+        },
+        {
+          "name": "获取评估指标列表",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{cookieString}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/core/evaluation/metric/list",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "core", "evaluation", "metric", "list"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pageNum\": 1,\n  \"pageSize\": 20,\n  \"searchKey\": \"\"\n}"
+            }
+          }
+        },
+        {
+          "name": "获取指标详情",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "{{cookieString}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/core/evaluation/metric/detail?metricId={{metricId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "core", "evaluation", "metric", "detail"],
+              "query": [
+                {
+                  "key": "metricId",
+                  "value": "{{metricId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "更新评估指标",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{cookieString}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/core/evaluation/metric/update",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "core", "evaluation", "metric", "update"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"metricId\": \"{{metricId}}\",\n  \"name\": \"更新后的指标名称\",\n  \"description\": \"更新后的描述\",\n  \"config\": {\n    \"model\": \"gpt-4\",\n    \"prompt\": \"更新后的提示词\",\n    \"temperature\": 0.2\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "测试评估指标",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{cookieString}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/core/evaluation/metric/test",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "core", "evaluation", "metric", "test"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"metricId\": \"{{metricId}}\",\n  \"testCase\": {\n    \"userInput\": \"什么是人工智能？\",\n    \"expectedOutput\": \"人工智能（AI）是计算机科学的一个分支，旨在创建能够执行通常需要人类智能的任务的智能机器。\",\n    \"actualOutput\": \"人工智能是一种让计算机能够模拟人类智能行为的技术。\",\n    \"context\": [\"技术背景\"],\n    \"retrievalContext\": [\"相关知识\"]\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "删除评估指标",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{cookieString}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/core/evaluation/metric/delete",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "core", "evaluation", "metric", "delete"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"metricId\": \"{{metricId}}\"\n}"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "exec": [
+          "// 在每个请求前检查Cookie认证",
+          "if (!pm.variables.get('fastgptToken')) {",
+          "    console.log('警告: 未设置fastgpt_token，请在Collection Variables中设置fastgptToken');",
+          "}",
+          "",
+          "// 自动设置Cookie头",
+          "const cookieValue = pm.variables.get('cookieString');",
+          "if (cookieValue && !pm.request.headers.has('Cookie')) {",
+          "    pm.request.headers.add({key: 'Cookie', value: cookieValue});",
+          "}"
+        ],
+        "type": "text/javascript"
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "exec": [
+          "// 通用响应检查",
+          "pm.test('Status code is 200', function () {",
+          "    pm.response.to.have.status(200);",
+          "});",
+          "",
+          "pm.test('Response time is less than 5000ms', function () {",
+          "    pm.expect(pm.response.responseTime).to.be.below(5000);",
+          "});",
+          "",
+          "// 自动保存响应中的ID到变量",
+          "const responseJson = pm.response.json();",
+          "if (responseJson._id) {",
+          "    const requestUrl = pm.request.url.toString();",
+          "    if (requestUrl.includes('/evaluation/task/create')) {",
+          "        pm.collectionVariables.set('evalId', responseJson._id);",
+          "        console.log('Saved evalId: ' + responseJson._id);",
+          "    } else if (requestUrl.includes('/dataset/collection/create')) {",
+          "        pm.collectionVariables.set('datasetId', responseJson);",
+          "        console.log('Saved datasetId: ' + responseJson);",
+          "    } else if (requestUrl.includes('/metric/create')) {",
+          "        pm.collectionVariables.set('metricId', responseJson._id);",
+          "        console.log('Saved metricId: ' + responseJson._id);",
+          "    }",
+          "}"
+        ],
+        "type": "text/javascript"
+      }
+    }
+  ]
+}
