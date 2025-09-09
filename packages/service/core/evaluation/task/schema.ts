@@ -206,6 +206,19 @@ EvaluationItemSchema.index({ evalId: 1, status: 1 });
 EvaluationItemSchema.index({ status: 1, retry: 1 });
 EvaluationItemSchema.index({ evalId: 1, finishTime: -1 });
 
+// DataItem aggregation indexes for improved performance
+EvaluationItemSchema.index({ 'dataItem._id': 1, evalId: 1 }); // Core index for dataItem operations
+EvaluationItemSchema.index({ evalId: 1, 'dataItem._id': 1, status: 1 }); // List aggregation with status filter
+EvaluationItemSchema.index({ 'dataItem._id': 1, evalId: 1, status: 1, retry: 1 }); // Retry operations
+EvaluationItemSchema.index({ evalId: 1, status: 1, 'dataItem._id': 1 }); // General aggregation queries
+
+// Text search optimization for keyword filtering in dataItem content
+EvaluationItemSchema.index({
+  evalId: 1,
+  'dataItem.userInput': 'text',
+  'dataItem.expectedOutput': 'text'
+}); // Text search in dataItem content
+
 export const MongoEvaluation = getMongoModel<EvaluationSchemaType>(
   EvaluationCollectionName,
   EvaluationTaskSchema
