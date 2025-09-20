@@ -132,11 +132,6 @@ export const EvaluationTaskSchema = new Schema({
     ref: UsageCollectionName,
     required: true
   },
-  status: {
-    type: String,
-    enum: EvaluationStatusValues,
-    default: EvaluationStatusEnum.queuing
-  },
   createTime: {
     type: Date,
     required: true,
@@ -144,21 +139,6 @@ export const EvaluationTaskSchema = new Schema({
   },
   finishTime: Date,
   errorMessage: String,
-  // Statistical information
-  statistics: {
-    totalItems: {
-      type: Number,
-      default: 0
-    },
-    completedItems: {
-      type: Number,
-      default: 0
-    },
-    errorItems: {
-      type: Number,
-      default: 0
-    }
-  },
   // Summary configuration for each evaluator (indexed by evaluator index)
   summaryConfigs: [
     {
@@ -219,7 +199,6 @@ EvaluationTaskSchema.index({ _id: 1, teamId: 1 }); // Primary lookup pattern: fi
 EvaluationTaskSchema.index({ teamId: 1, createTime: -1 }); // Main listing query: team filtering + time sorting
 EvaluationTaskSchema.index({ teamId: 1, tmbId: 1, createTime: -1 }); // Permission filtering: team + creator + time sorting
 EvaluationTaskSchema.index({ teamId: 1, name: 1 }, { unique: true }); // Name uniqueness check within team
-EvaluationTaskSchema.index({ status: 1 }); // Queue processing and status-based operations
 
 // Atomic evaluation item: one dataItem + one target + one evaluator
 export const EvaluationItemSchema = new Schema({
@@ -242,15 +221,6 @@ export const EvaluationItemSchema = new Schema({
     type: [Schema.Types.Mixed],
     default: []
   },
-  status: {
-    type: String,
-    enum: EvaluationStatusValues,
-    default: EvaluationStatusEnum.queuing
-  },
-  retry: {
-    type: Number,
-    default: 3
-  },
   finishTime: Date,
   errorMessage: String,
   // Weighted aggregate score calculated from multiple evaluators
@@ -261,10 +231,8 @@ export const EvaluationItemSchema = new Schema({
 });
 
 // Optimized indexes for EvaluationItemSchema based on actual query patterns
-EvaluationItemSchema.index({ evalId: 1, status: 1 }); // Status-specific queries within evaluation (aggregation, filtering)
+EvaluationItemSchema.index({ evalId: 1 }); // Basic queries within evaluation
 EvaluationItemSchema.index({ evalId: 1, createTime: -1 }); // Listing items within evaluation with time sorting
-EvaluationItemSchema.index({ evalId: 1, status: 1, createTime: -1 }); // Status filtering + time sorting for pagination
-EvaluationItemSchema.index({ status: 1, retry: 1 }); // Queue processing: pending items with retry logic
 
 // Content search index for filtering by text content (used in listEvaluationItems)
 EvaluationItemSchema.index({

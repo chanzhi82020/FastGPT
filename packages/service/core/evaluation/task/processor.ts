@@ -7,7 +7,11 @@ import type {
   EvaluationItemSchemaType,
   EvaluationDataItemType
 } from '@fastgpt/global/core/evaluation/type';
-import { evaluationItemQueue, getEvaluationItemWorker, getEvaluationTaskWorker } from './mq';
+import {
+  getEvaluationItemWorker,
+  getEvaluationTaskWorker,
+  addEvaluationItemJobs
+} from './mq';
 import { MongoEvaluation, MongoEvalItem } from './schema';
 import { MongoEvalDatasetData } from '../dataset/evalDatasetDataSchema';
 import { createTargetInstance } from '../target';
@@ -15,311 +19,81 @@ import { createEvaluatorInstance } from '../evaluator';
 import { Types } from 'mongoose';
 import { EvaluationStatusEnum } from '@fastgpt/global/core/evaluation/constants';
 import { checkTeamAIPoints } from '../../../support/permission/teamLimit';
-import { TeamErrEnum } from '@fastgpt/global/common/error/code/team';
 import { EvaluationErrEnum } from '@fastgpt/global/common/error/code/evaluation';
 import { getErrText } from '@fastgpt/global/common/error/utils';
 import { createMergedEvaluationUsage } from '../utils/usage';
 import { EvaluationSummaryService } from '../summary';
 import { calculateEvaluationItemAggregateScore } from '../summary/util/aggregateScoreCalculator';
+import { getBatchEvaluationItemStatus } from './statusCalculator';
+import { createEvaluationError } from './errors';
 
 import type { MetricResult } from '@fastgpt/global/core/evaluation/metric/type';
 import { MetricResultStatusEnum } from '@fastgpt/global/core/evaluation/metric/constants';
 
-// Sleep utility function
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-// Evaluation stage error types
-export enum EvaluationStageEnum {
-  TaskExecute = 'TaskExecute',
-  EvaluatorExecute = 'EvaluatorExecute',
-  ResourceCheck = 'ResourceCheck'
-}
-
-// Structured error class for evaluation stages
-export class EvaluationStageError extends Error {
-  public readonly stage: EvaluationStageEnum;
-  public readonly originalError: any;
-  public readonly retriable: boolean;
-
-  constructor(
-    stage: EvaluationStageEnum,
-    errorMsg: string,
-    retriable: boolean,
-    originalError?: any
-  ) {
-    super(errorMsg);
-    this.name = 'EvaluationStageError';
-    this.stage = stage;
-    this.originalError = originalError;
-    this.retriable = retriable;
-  }
-
-  toString(): string {
-    return `[${this.stage}] ${this.message}`;
-  }
-}
-
-// Aggregated error class for multiple evaluator errors
-export class EvaluatorAggregatedError extends Error {
-  public readonly errors: Array<{
-    evaluatorName: string;
-    error: string;
-    retriable: boolean;
-  }>;
-  public readonly retriable: boolean;
-
-  constructor(errors: Array<{ evaluatorName: string; error: string }>) {
-    const errorMessages = errors.map((e) => `${e.evaluatorName}: ${e.error}`);
-    super(`Evaluator errors: ${errorMessages.join('; ')}`);
-    this.name = 'EvaluatorAggregatedError';
-
-    // Check retriability for each error and determine overall retriability
-    this.errors = errors.map((e) => ({
-      ...e,
-      retriable: isEvaluatorExecutionRetriable(e.error)
-    }));
-
-    // Consider aggregated error retriable if any individual error is retriable
-    this.retriable = this.errors.some((e) => e.retriable);
-  }
-}
-
-// Distributed lock implementation
-const distributedLocks = new Map<string, { timestamp: number; timeout: number }>();
-
-const acquireDistributedLock = async (
-  lockKey: string,
-  timeout: number = 30000
-): Promise<{ release: () => Promise<void> }> => {
-  const now = Date.now();
-  const existing = distributedLocks.get(lockKey);
-
-  // Clean expired locks
-  if (existing && now > existing.timestamp + existing.timeout) {
-    distributedLocks.delete(lockKey);
-  }
-
-  // Wait for lock to be available
-  let attempts = 0;
-  while (distributedLocks.has(lockKey) && attempts < 10) {
-    await sleep(100);
-    attempts++;
-  }
-
-  if (distributedLocks.has(lockKey)) {
-    throw new Error(EvaluationErrEnum.evalLockAcquisitionFailed);
-  }
-
-  // Acquire lock
-  distributedLocks.set(lockKey, { timestamp: now, timeout });
-
-  return {
-    release: async () => {
-      distributedLocks.delete(lockKey);
-    }
-  };
-};
-
-// Enhanced retriable error patterns with categories
-const RETRIABLE_ERROR_PATTERNS = {
-  // Network connectivity issues
-  network: [
-    'NETWORK_ERROR',
-    'ECONNRESET',
-    'ENOTFOUND',
-    'ECONNREFUSED',
-    'Connection refused',
-    'socket hang up',
-    'connect timeout',
-    'EHOSTUNREACH',
-    'ENETUNREACH'
-  ],
-  // Timeout related errors
-  timeout: ['TIMEOUT', 'timeout', 'ETIMEDOUT', 'Request timeout', 'Connection timeout'],
-  // Rate limiting and temporary service issues
-  rateLimit: [
-    'RATE_LIMIT',
-    'rate limit',
-    'too many requests',
-    '429',
-    'quota exceeded',
-    'throttled'
-  ],
-  // Temporary server errors
-  serverError: [
-    '502',
-    '503',
-    '504',
-    'bad gateway',
-    'service unavailable',
-    'gateway timeout',
-    'temporary failure',
-    'server overloaded'
-  ]
-};
-
-const maxRetries = Number(process.env.EVAL_ITEM_MAX_RETRY) || 3; // Default max retry count
-
-// Enhanced error analysis with category detection
-const analyzeError = (
-  error: any
-): { isRetriable: boolean; category?: string; pattern?: string } => {
-  const errorStr = error?.message || error?.code || String(error);
-  const lowerErrorStr = errorStr.toLowerCase();
-
-  // Check each category for matches
-  for (const [category, patterns] of Object.entries(RETRIABLE_ERROR_PATTERNS)) {
-    for (const pattern of patterns) {
-      if (lowerErrorStr.includes(pattern.toLowerCase())) {
-        return { isRetriable: true, category, pattern };
-      }
-    }
-  }
-
-  // Check HTTP status codes directly
-  const httpStatusMatch = errorStr.match(/\b(4\d{2}|5\d{2})\b/);
-  if (httpStatusMatch) {
-    const statusCode = httpStatusMatch[1];
-    // 4xx errors are generally not retriable except 429
-    if (statusCode === '429') {
-      return { isRetriable: true, category: 'rateLimit', pattern: statusCode };
-    }
-    // 5xx errors are generally retriable
-    if (statusCode.startsWith('5')) {
-      return { isRetriable: true, category: 'serverError', pattern: statusCode };
-    }
-  }
-
-  return { isRetriable: false };
-};
-
-// Determine if target execution error should be retriable
-const isTargetExecutionRetriable = (error: any): boolean => {
-  if (error === TeamErrEnum.aiPointsNotEnough) return false;
-  if (error === EvaluationErrEnum.evalTargetOutputRequired) return true;
-  return analyzeError(error).isRetriable;
-};
-
-// Determine if evaluator execution error should be retriable
-const isEvaluatorExecutionRetriable = (error: any): boolean => {
-  if (error === TeamErrEnum.aiPointsNotEnough) return false;
-  return analyzeError(error).isRetriable;
-};
-
-// General error retriability check for handleEvalItemError
-const isRetriableError = (error: any): boolean => {
-  // If it's a structured stage error, use its retriable flag
-  if (error instanceof EvaluationStageError) {
-    return error.retriable;
-  }
-
-  // If it's an aggregated error, use its retriable flag
-  if (error instanceof EvaluatorAggregatedError) {
-    return error.retriable;
-  }
-
-  return analyzeError(error).isRetriable;
-};
-
-// Complete evaluation task - simplified version based on status enum statistics
-const finishEvaluationTask = async (evalId: string) => {
-  const lockKey = `eval_task_finish_${evalId}`;
-  const lock = await acquireDistributedLock(lockKey, 30000);
-
+// Complete evaluation task
+export const finishEvaluationTask = async (evalId: string) => {
   try {
-    // Simplified aggregation query: based only on status statistics
-    const [statsResult] = await MongoEvalItem.aggregate([
-      {
-        $match: { evalId: new Types.ObjectId(evalId) }
-      },
-      {
-        $group: {
-          _id: null,
-          totalCount: { $sum: 1 },
-          // Statistics by status
-          completedCount: {
-            $sum: { $cond: [{ $eq: ['$status', EvaluationStatusEnum.completed] }, 1, 0] }
-          },
-          errorCount: {
-            $sum: { $cond: [{ $eq: ['$status', EvaluationStatusEnum.error] }, 1, 0] }
-          },
-          evaluatingCount: {
-            $sum: { $cond: [{ $eq: ['$status', EvaluationStatusEnum.evaluating] }, 1, 0] }
-          },
-          queuingCount: {
-            $sum: { $cond: [{ $eq: ['$status', EvaluationStatusEnum.queuing] }, 1, 0] }
-          }
-        }
-      }
-    ]);
+    // Get all evaluation items for this task
+    const allItems = await MongoEvalItem.find({ evalId: new Types.ObjectId(evalId) }, '_id').lean();
 
-    // If no data, return (should not happen)
-    if (!statsResult) {
+    if (allItems.length === 0) {
       addLog.warn(`[Evaluation] Evaluation task has no evaluation item data: ${evalId}`);
       return;
     }
 
-    const {
-      totalCount = 0,
-      completedCount = 0,
-      errorCount = 0,
-      evaluatingCount = 0,
-      queuingCount = 0
-    } = statsResult;
+    const totalCount = allItems.length;
+    const itemIds = allItems.map((item) => item._id.toString());
+
+    const statusMap = await getBatchEvaluationItemStatus(itemIds);
+
+    let completedCount = 0;
+    let errorCount = 0;
+    let evaluatingCount = 0;
+    let queuingCount = 0;
+
+    for (const itemId of itemIds) {
+      const status = statusMap.get(itemId) || EvaluationStatusEnum.completed;
+      switch (status) {
+        case EvaluationStatusEnum.completed:
+          completedCount++;
+          break;
+        case EvaluationStatusEnum.error:
+          errorCount++;
+          break;
+        case EvaluationStatusEnum.evaluating:
+          evaluatingCount++;
+          break;
+        case EvaluationStatusEnum.queuing:
+          queuingCount++;
+          break;
+      }
+    }
 
     // Check if truly completed
     const pendingCount = evaluatingCount + queuingCount;
 
-    // Determine task status based on pending items and error count
-    let taskStatus: EvaluationStatusEnum;
-    if (pendingCount > 0) {
-      addLog.debug(
-        `[Evaluation] Task not yet completed: ${evalId}, pending items: ${pendingCount}`
+    // Set finishTime if all items are finished (either completed or error, no pending)
+    if (pendingCount === 0) {
+      await MongoEvaluation.updateOne(
+        { _id: new Types.ObjectId(evalId) },
+        { $set: { finishTime: new Date() } }
       );
-      taskStatus = EvaluationStatusEnum.evaluating;
-    } else if (errorCount > 0) {
-      // When there are failed items, mark task as error
-      addLog.info(
-        `[Evaluation] Task completed with errors: ${evalId}, error items: ${errorCount}, completed: ${completedCount}`
-      );
-      taskStatus = EvaluationStatusEnum.error;
-    } else {
-      // All items completed successfully
-      taskStatus = EvaluationStatusEnum.completed;
     }
 
-    // Update task status with statistical fields
-    const updateFields: any = {
-      status: taskStatus,
-      // Use statistics object to store execution statistics
-      statistics: {
-        totalItems: totalCount,
-        completedItems: completedCount,
-        errorItems: errorCount
-      }
-    };
-
-    // Set finishTime if the task is completed (either successfully or with errors)
-    if (
-      taskStatus === EvaluationStatusEnum.completed ||
-      taskStatus === EvaluationStatusEnum.error
-    ) {
-      updateFields.finishTime = new Date();
-    }
-
-    await MongoEvaluation.updateOne({ _id: new Types.ObjectId(evalId) }, { $set: updateFields });
+    const taskStatus =
+      pendingCount > 0
+        ? EvaluationStatusEnum.evaluating
+        : errorCount > 0
+          ? EvaluationStatusEnum.error
+          : EvaluationStatusEnum.completed;
 
     addLog.info(
-      `[Evaluation] Task finished: ${evalId}, status: ${taskStatus}, total: ${totalCount}, ` +
-        `success: ${completedCount}, failed: ${errorCount}`
+      `[Evaluation] Task status calculated: ${evalId}, realTimeStatus: ${taskStatus}, total: ${totalCount}, ` +
+        `success: ${completedCount}, failed: ${errorCount}, pending: ${pendingCount}`
     );
 
     // Calculate and save metric scores, then trigger async summary generation if task finished and has completed items
-    if (
-      (taskStatus === EvaluationStatusEnum.completed ||
-        taskStatus === EvaluationStatusEnum.error) &&
-      completedCount > 0
-    ) {
+    if (pendingCount === 0 && completedCount > 0) {
       try {
         // First, calculate and save metric scores to MongoDB
         await EvaluationSummaryService.calculateAndSaveMetricScores(evalId);
@@ -374,86 +148,26 @@ const finishEvaluationTask = async (evalId: string) => {
       }
     }
   } catch (error) {
-    addLog.error(`[Evaluation] Error occurred while completing task: ${evalId}`, error);
+    addLog.error(`[Evaluation] Error occurred while completing task: ${evalId}`, {
+      error: getErrText(error)
+    });
 
-    // When error occurs, mark task as error status
+    // When error occurs, save error info to database
     try {
       await MongoEvaluation.updateOne(
         { _id: new Types.ObjectId(evalId) },
         {
           $set: {
-            status: EvaluationStatusEnum.error,
             finishTime: new Date(),
             errorMessage: `System error occurred while completing task: ${error instanceof Error ? error.message : 'Unknown error'}`
           }
         }
       );
     } catch (updateError) {
-      addLog.error(`[Evaluation] Failed to update task error status: ${evalId}`, updateError);
+      addLog.warn(`[Evaluation] Failed to update task error info: ${evalId}`, {
+        updateError: getErrText(updateError)
+      });
     }
-  } finally {
-    await lock.release();
-  }
-};
-
-// Handle evaluation item error
-const handleEvalItemError = async (evalItemId: string, evalId: string, error: any) => {
-  let errorMessage = getErrText(error);
-  let stage = 'Unknown';
-
-  // Extract stage and error information from structured errors
-  if (error instanceof EvaluationStageError) {
-    stage = error.stage;
-    errorMessage = `[${stage}] ${error.message}`;
-  }
-
-  // Get current evaluation item
-  const evalItem = await MongoEvalItem.findById(evalItemId, 'retry evalId');
-  if (!evalItem) {
-    addLog.error(`[Evaluation] Evaluation item does not exist: ${evalItemId}`);
-    return;
-  }
-
-  const isRetriable = isRetriableError(error);
-  const currentRetryCount = evalItem.retry || 0;
-  const newRetryCount = isRetriable ? Math.max(currentRetryCount - 1, 0) : 0;
-  const shouldRetry = isRetriable && newRetryCount > 0;
-  const newStatus = shouldRetry ? EvaluationStatusEnum.queuing : EvaluationStatusEnum.error;
-
-  // Build retry attempt info for logging
-  const retryAttempt = maxRetries - currentRetryCount + 1;
-
-  const updateData: any = {
-    retry: newRetryCount,
-    errorMessage,
-    status: newStatus,
-    finishTime: newStatus === EvaluationStatusEnum.error ? new Date() : undefined
-  };
-
-  await MongoEvalItem.updateOne({ _id: new Types.ObjectId(evalItemId) }, updateData);
-
-  // Re-enqueue for retry with improved job naming
-  if (shouldRetry) {
-    const retryDelay = Math.min(1000 * Math.pow(2, maxRetries - newRetryCount), 30000); // Exponential backoff
-    await evaluationItemQueue.add(
-      `eval_item_${evalItemId}_retry_${retryAttempt}`,
-      {
-        evalId,
-        evalItemId
-      },
-      {
-        delay: retryDelay
-      }
-    );
-
-    addLog.debug(
-      `[Evaluation] Item requeued for retry: ${evalItemId}, stage: ${stage}, remaining: ${newRetryCount}, delay: ${retryDelay}ms`
-    );
-  } else {
-    addLog.error(
-      `[Evaluation] Item failed permanently: ${evalItemId}, stage: ${stage}, retriable: ${isRetriable}`,
-      error instanceof EvaluationStageError ? error.originalError || error : error
-    );
   }
 };
 
@@ -467,40 +181,16 @@ const evaluationTaskProcessor = async (job: Job<EvaluationTaskJobData>) => {
     // Report initial progress
     await job.updateProgress(0);
 
-    // Update status to evaluating and get evaluation data in one atomic operation
-    const evaluation = await MongoEvaluation.findOneAndUpdate(
-      {
-        _id: new Types.ObjectId(evalId),
-        status: {
-          $in: [
-            EvaluationStatusEnum.queuing,
-            EvaluationStatusEnum.error // Allow restarting manually stopped tasks
-          ]
-        }
-      },
-      { $set: { status: EvaluationStatusEnum.evaluating } },
-      { returnDocument: 'after', lean: true }
-    );
+    // Get evaluation data
+    const evaluation = await MongoEvaluation.findById(evalId).lean();
 
-    // If the task cannot be updated, it's either already processing or in an invalid state
+    // If the task doesn't exist, skip processing
     if (!evaluation) {
-      // Get current status for better error reporting
-      const currentEval = await MongoEvaluation.findById(evalId).select('status').lean();
-      if (!currentEval) {
-        addLog.warn(`[Evaluation] Task ${evalId} no longer exists, skipping`);
-      } else if (currentEval.status === EvaluationStatusEnum.evaluating) {
-        addLog.warn(
-          `[Evaluation] Task ${evalId} is already being processed by another worker, skipping`
-        );
-      } else {
-        addLog.warn(
-          `[Evaluation] Task ${evalId} is in state '${currentEval.status}', cannot process`
-        );
-      }
+      addLog.warn(`[Evaluation] Task ${evalId} no longer exists, skipping`);
       return;
     }
 
-    addLog.debug(`[Evaluation] Task status updated to evaluating: ${evalId}`);
+    addLog.debug(`[Evaluation] Task ${evalId} now evaluating`);
 
     // Validate target and evaluators configuration early
     if (!evaluation.target || !evaluation.target.type || !evaluation.target.config) {
@@ -519,29 +209,28 @@ const evaluationTaskProcessor = async (job: Job<EvaluationTaskJobData>) => {
     if (existingItems.length > 0) {
       // Normal path: items were created during task creation
       addLog.debug(
-        `[Evaluation] Task already has ${existingItems.length} items, submitting to queue...`
+        `[Evaluation] Task ${evalId} already has ${existingItems.length} items, submitting to queue...`
       );
 
-      // Submit pending and retryable items to queue
-      const itemsToProcess = existingItems.filter(
-        (item) =>
-          item.status === EvaluationStatusEnum.queuing ||
-          (item.status === EvaluationStatusEnum.error && item.retry > 0)
-      );
+      const itemIds = existingItems.map((item) => item._id.toString());
+      const statusMap = await getBatchEvaluationItemStatus(itemIds);
+
+      const itemsToProcess = existingItems.filter((item) => {
+        const realTimeStatus = statusMap.get(item._id.toString()) || EvaluationStatusEnum.completed;
+        // 移除 retry 相关的检查，只保留排队状态的检查
+        return realTimeStatus === EvaluationStatusEnum.queuing;
+      });
 
       if (itemsToProcess.length > 0) {
         const jobs = itemsToProcess.map((item, index) => ({
-          name: `eval_item_${evalId}_${index}`,
           data: {
             evalId,
             evalItemId: item._id.toString()
           },
-          opts: {
-            delay: index * 100 // Add small delay to avoid starting too many tasks simultaneously
-          }
+          delay: index * 100 // Add small delay to avoid starting too many tasks simultaneously
         }));
 
-        await evaluationItemQueue.addBulk(jobs);
+        await addEvaluationItemJobs(jobs);
         addLog.debug(`[Evaluation] Submitted ${jobs.length} items to queue`);
       } else {
         addLog.debug(`[Evaluation] No items to process, all items are completed or failed`);
@@ -567,7 +256,7 @@ const evaluationTaskProcessor = async (job: Job<EvaluationTaskJobData>) => {
     }
 
     // Create evaluation items for each dataItem
-    const evalItems: Omit<EvaluationItemSchemaType, '_id'>[] = [];
+    const evalItems: Omit<EvaluationItemSchemaType, '_id' | 'status'>[] = [];
     for (const dataItem of dataItems) {
       const evaluationDataItem: EvaluationDataItemType = {
         _id: dataItem._id,
@@ -579,9 +268,7 @@ const evaluationTaskProcessor = async (job: Job<EvaluationTaskJobData>) => {
 
       evalItems.push({
         evalId,
-        dataItem: evaluationDataItem,
-        status: EvaluationStatusEnum.queuing,
-        retry: maxRetries
+        dataItem: evaluationDataItem
       });
     }
 
@@ -589,19 +276,16 @@ const evaluationTaskProcessor = async (job: Job<EvaluationTaskJobData>) => {
     const insertedItems = await MongoEvalItem.insertMany(evalItems);
     addLog.debug(`[Evaluation] Created ${insertedItems.length} evaluation items`);
 
-    // Submit to evaluation item queue for concurrent processing
+    // Submit to evaluation item queue for concurrent processing with deduplication
     const jobs = insertedItems.map((item, index) => ({
-      name: `eval_item_${evalId}_${index}`,
       data: {
         evalId,
         evalItemId: item._id.toString()
       },
-      opts: {
-        delay: index * 100
-      }
+      delay: index * 100
     }));
 
-    await evaluationItemQueue.addBulk(jobs);
+    await addEvaluationItemJobs(jobs);
 
     // Report final progress
     await job.updateProgress(100);
@@ -610,19 +294,25 @@ const evaluationTaskProcessor = async (job: Job<EvaluationTaskJobData>) => {
       `[Evaluation] Task decomposition completed: ${evalId}, submitted ${jobs.length} evaluation items to queue`
     );
   } catch (error) {
-    addLog.error(`[Evaluation] Task processing failed: ${evalId}`, error);
-
-    // Mark task as failed
-    await MongoEvaluation.updateOne(
-      { _id: new Types.ObjectId(evalId) },
-      {
-        $set: {
-          errorMessage: getErrText(error),
-          status: EvaluationStatusEnum.error,
-          finishTime: new Date()
+    // Only save error message and finish time
+    try {
+      await MongoEvaluation.updateOne(
+        { _id: new Types.ObjectId(evalId) },
+        {
+          $set: {
+            errorMessage: getErrText(error),
+            finishTime: new Date()
+          }
         }
-      }
-    );
+      );
+    } catch (updateError) {
+      addLog.warn(`[Evaluation] Failed to update task error info: ${evalId}`, {
+        updateError: getErrText(updateError)
+      });
+    }
+
+    // Re-throw error for BullMQ to handle
+    throw error;
   }
 };
 
@@ -639,17 +329,7 @@ const evaluationItemProcessor = async (job: Job<EvaluationItemJobData>) => {
     // Get evaluation item information
     const evalItem = await MongoEvalItem.findById(evalItemId);
     if (!evalItem) {
-      throw new EvaluationStageError(
-        EvaluationStageEnum.ResourceCheck,
-        getErrText(EvaluationErrEnum.evalItemNotFound),
-        false // Resource not found errors are not retriable
-      );
-    }
-
-    // Check if item is already completed (reentrant handling)
-    if (evalItem.status === EvaluationStatusEnum.completed) {
-      addLog.debug(`[Evaluation] Item already completed: ${evalItemId}`);
-      return;
+      throw createEvaluationError(EvaluationErrEnum.evalItemNotFound, 'ResourceCheck');
     }
 
     // Get evaluation information for AI Points check and target/evaluators config
@@ -658,50 +338,34 @@ const evaluationItemProcessor = async (job: Job<EvaluationItemJobData>) => {
       'teamId tmbId usageId target evaluators'
     );
     if (!evaluation) {
-      throw new EvaluationStageError(
-        EvaluationStageEnum.ResourceCheck,
-        getErrText(EvaluationErrEnum.evalTaskNotFound),
-        false // Resource not found errors are not retriable
-      );
+      throw createEvaluationError(EvaluationErrEnum.evalTaskNotFound, 'ResourceCheck');
     }
 
     // Check AI Points
     try {
       await checkTeamAIPoints(evaluation.teamId);
     } catch (error) {
-      throw new EvaluationStageError(
-        EvaluationStageEnum.ResourceCheck,
-        getErrText(error),
-        false // AI Point errors are not retriable
-      );
+      throw createEvaluationError(error, 'ResourceCheck');
     }
 
     // Initialize outputs - check for existing results first for resume capability
     let targetOutput: TargetOutput | undefined = undefined;
     let evaluatorOutputs: MetricResult[] = [];
 
-    // Resume from checkpoint only if in evaluating status
-    if (evalItem.status === EvaluationStatusEnum.evaluating) {
-      if (evalItem.targetOutput?.actualOutput) {
-        addLog.debug(`[Evaluation] Resuming targetOutput from evalItem: ${evalItemId}`);
-        targetOutput = evalItem.targetOutput;
-      }
-      if (evalItem.evaluatorOutputs && evalItem.evaluatorOutputs.length > 0) {
-        addLog.debug(`[Evaluation] Resuming evaluatorOutputs from evalItem: ${evalItemId}`);
-        evaluatorOutputs = evalItem.evaluatorOutputs;
-      }
-    } else {
-      // For queuing or error status, always start from scratch
-      addLog.debug(
-        `[Evaluation] Starting/restarting item from scratch: ${evalItemId}, status: ${evalItem.status}`
-      );
+    // Resume from checkpoint if previous execution results exist
+    // Since job is executing, we can safely check for existing results to resume
+    if (evalItem.targetOutput?.actualOutput) {
+      addLog.debug(`[Evaluation] Resuming targetOutput from evalItem: ${evalItemId}`);
+      targetOutput = evalItem.targetOutput;
+    }
+    if (evalItem.evaluatorOutputs && evalItem.evaluatorOutputs.length > 0) {
+      addLog.debug(`[Evaluation] Resuming evaluatorOutputs from evalItem: ${evalItemId}`);
+      evaluatorOutputs = evalItem.evaluatorOutputs;
     }
 
-    // Update status to processing
-    await MongoEvalItem.updateOne(
-      { _id: new Types.ObjectId(evalItemId) },
-      { $set: { status: EvaluationStatusEnum.evaluating } }
-    );
+    if (!targetOutput && !evaluatorOutputs.length) {
+      addLog.debug(`[Evaluation] Starting evaluation item from scratch: ${evalItemId}`);
+    }
 
     // Report progress: setup completed
     await job.updateProgress(10);
@@ -759,16 +423,11 @@ const evaluationItemProcessor = async (job: Job<EvaluationItemJobData>) => {
           throw new Error(EvaluationErrEnum.evalTargetOutputRequired);
         }
       } catch (error) {
-        // Normalize target execution error
-        const retriable = isTargetExecutionRetriable(error);
-        const errorMessage = getErrText(error) || 'Target execution failed';
-
-        throw new EvaluationStageError(
-          EvaluationStageEnum.TaskExecute,
-          errorMessage,
-          retriable,
-          error
-        );
+        // 使用新的 BullMQ 错误类型替代自定义错误类
+        throw createEvaluationError(error, 'TargetExecute', {
+          evalId,
+          evalItemId
+        });
       }
     }
 
@@ -854,13 +513,13 @@ const evaluationItemProcessor = async (job: Job<EvaluationItemJobData>) => {
 
     // After all evaluators, check if there were any errors
     if (errors.length > 0) {
-      const aggregatedError = new EvaluatorAggregatedError(errors);
-      throw new EvaluationStageError(
-        EvaluationStageEnum.EvaluatorExecute,
-        aggregatedError.message,
-        aggregatedError.retriable,
-        aggregatedError
-      );
+      const errorMessage = `Evaluator errors: ${errors.map((e) => `${e.evaluatorName}: ${e.error}`).join('; ')}`;
+      const aggregatedError = new Error(errorMessage);
+      // 使用新的 BullMQ 错误类型
+      throw createEvaluationError(aggregatedError, 'EvaluatorExecute', {
+        evalId,
+        evalItemId
+      });
     }
 
     // 3. Calculate aggregate score for this evaluation item
@@ -874,7 +533,6 @@ const evaluationItemProcessor = async (job: Job<EvaluationItemJobData>) => {
           targetOutput: targetOutput,
           evaluatorOutputs: evaluatorOutputs,
           aggregateScore: aggregateScore,
-          status: EvaluationStatusEnum.completed,
           finishTime: new Date()
         },
         $unset: {
@@ -893,18 +551,25 @@ const evaluationItemProcessor = async (job: Job<EvaluationItemJobData>) => {
       `[Evaluation] Evaluation item completed: ${evalItemId}, scores: [${scores.join(', ')}], aggregateScore: ${aggregateScore}`
     );
   } catch (error) {
-    addLog.error(`[Evaluation] Evaluation item error: ${evalItemId}, error: ${error}`);
-    await handleEvalItemError(evalItemId, evalId, error);
-  }
+    // Save error message to evaluation item before throwing
+    try {
+      await MongoEvalItem.updateOne(
+        { _id: new Types.ObjectId(evalItemId) },
+        {
+          $set: {
+            errorMessage: getErrText(error),
+            finishTime: new Date()
+          }
+        }
+      );
+    } catch (updateError) {
+      addLog.warn(`[Evaluation] Failed to save error message for item: ${evalItemId}`, {
+        updateError: getErrText(updateError)
+      });
+    }
 
-  // After try-catch, check if all evaluation items are completed
-  try {
-    await finishEvaluationTask(evalId);
-  } catch (finishError) {
-    addLog.error(
-      `[Evaluation] Error occurred while checking task completion status: ${evalId}`,
-      finishError
-    );
+    // 抛出错误，让 BullMQ 处理重试逻辑
+    throw error;
   }
 };
 
@@ -918,4 +583,4 @@ export const initEvalTaskItemWorker = () => {
 };
 
 // Export for testing
-export { evaluationTaskProcessor, evaluationItemProcessor, finishEvaluationTask };
+export { evaluationTaskProcessor, evaluationItemProcessor };
