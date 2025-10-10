@@ -26,7 +26,7 @@ export enum EvaluationErrEnum {
   evalTaskNotFound = 'evaluationTaskNotFound',
   evalItemNotFound = 'evaluationItemNotFound',
 
-  // Business logic errors
+  // Task related errors
   evalInvalidStatus = 'evaluationInvalidStatus',
   evalInvalidStateTransition = 'evaluationInvalidStateTransition',
   evalOnlyRunningCanStop = 'evaluationOnlyRunningCanStop',
@@ -118,9 +118,6 @@ export enum EvaluationErrEnum {
   datasetTaskOperationFailed = 'evaluationDatasetTaskOperationFailed',
   datasetTaskDeleteFailed = 'evaluationDatasetTaskDeleteFailed',
   fetchFailedTasksError = 'evaluationFetchFailedTasksError',
-
-  // Evaluation task job related errors
-  evalItemJobNotFound = 'evaluationItemJobNotFound',
 
   // File/Import related errors
   fileIdRequired = 'evaluationFileIdRequired',
@@ -529,12 +526,6 @@ const evaluationErrList = [
   {
     statusText: EvaluationErrEnum.fetchFailedTasksError,
     message: i18nT('evaluation:fetch_failed_tasks_error')
-  },
-
-  // Evaluation task job related errors
-  {
-    statusText: EvaluationErrEnum.evalItemJobNotFound,
-    message: i18nT('evaluation:item_job_not_found')
   },
 
   // File/Import related errors

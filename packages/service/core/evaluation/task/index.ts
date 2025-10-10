@@ -16,7 +16,6 @@ import {
   removeEvaluationItemJobsByItemId,
   addEvaluationTaskJob,
   addEvaluationItemJob,
-  checkEvaluationTaskJobActive,
   evaluationItemQueue
 } from './mq';
 import { createEvaluationUsage } from '../../../support/wallet/usage/controller';
@@ -25,12 +24,7 @@ import { buildEvalDataConfig } from '../summary/util/weightCalculator';
 import { EvaluationErrEnum } from '@fastgpt/global/common/error/code/evaluation';
 import { mongoSessionRun } from '../../../common/mongo/sessionRun';
 import { type ClientSession } from '../../../common/mongo';
-import {
-  getEvaluationTaskStatus,
-  getEvaluationItemStatus,
-  getEvaluationTaskStats,
-  getBatchEvaluationItemStatus
-} from './statusCalculator';
+import { getEvaluationTaskStatus, getEvaluationTaskStats } from './statusCalculator';
 import { EvaluationSummaryService } from '../summary';
 import { removeEvaluationSummaryJobs } from '../summary/queue';
 import { translateBuiltinMetricName, translateCsvColumnName } from '../utils/metricTranslator';
@@ -580,13 +574,6 @@ export class EvaluationTaskService {
   static async startEvaluation(evalId: string, teamId: string): Promise<void> {
     const evaluation = await this.getEvaluation(evalId, teamId);
 
-    // Check if task can be started using job status
-    const isJobActive = await checkEvaluationTaskJobActive(evalId);
-
-    if (isJobActive) {
-      throw new Error('Evaluation task is already running');
-    }
-
     // Let BullMQ handle most scenarios
     const canStart =
       evaluation.status === EvaluationStatusEnum.queuing ||
@@ -613,11 +600,7 @@ export class EvaluationTaskService {
   static async stopEvaluation(evalId: string, teamId: string): Promise<void> {
     const evaluation = await this.getEvaluation(evalId, teamId);
 
-    // Check if task is running using job status
-    const isJobActive = await checkEvaluationTaskJobActive(evalId);
-
     if (
-      !isJobActive &&
       ![EvaluationStatusEnum.evaluating, EvaluationStatusEnum.queuing].includes(evaluation.status)
     ) {
       throw new Error(EvaluationErrEnum.evalOnlyRunningCanStop);
@@ -817,9 +800,9 @@ export class EvaluationTaskService {
       evalId: evaluation._id
     };
 
-    // Use metadata.status for status filtering
+    // Use status for status filtering
     if (status !== undefined) {
-      matchConditions['metadata.status'] = status;
+      matchConditions['status'] = status;
     }
 
     // Add text search conditions
@@ -847,12 +830,7 @@ export class EvaluationTaskService {
     // Build pipeline stages
     const commonPipeline: any[] = [{ $match: matchConditions }];
 
-    // Add status field using metadata.status
-    commonPipeline.push({
-      $addFields: {
-        status: '$metadata.status'
-      }
-    });
+    // Status field is already available directly
 
     // Add threshold filter if specified
     if (belowThreshold) {
@@ -868,7 +846,7 @@ export class EvaluationTaskService {
         commonPipeline.push({
           $match: {
             hasFailedEvaluator: true,
-            'metadata.status': EvaluationStatusEnum.completed, // Only completed items
+            status: EvaluationStatusEnum.completed, // Only completed items
             evaluatorOutputs: { $exists: true, $ne: null, $not: { $size: 0 } } // Valid evaluator outputs
           }
         });
@@ -914,13 +892,7 @@ export class EvaluationTaskService {
 
     await this.getEvaluation(item.evalId, teamId);
 
-    // Get real-time status
-    const status = await getEvaluationItemStatus(itemId);
-
-    return {
-      ...item,
-      status
-    };
+    return item;
   }
 
   /**
@@ -1049,18 +1021,44 @@ export class EvaluationTaskService {
   static async retryEvaluationItem(itemId: string, teamId: string): Promise<void> {
     const item = await this.getEvaluationItem(itemId, teamId);
 
-    // Find the failed job for this item by searching through failed jobs
-    const failedJobs = await evaluationItemQueue.getJobs(['failed']);
-    const job = failedJobs.find((j) => j.data.evalItemId === itemId);
-
-    if (!job) {
-      throw new Error(EvaluationErrEnum.evalItemJobNotFound);
+    if (item.status !== EvaluationStatusEnum.error) {
+      throw new Error(EvaluationErrEnum.evalItemNoErrorToRetry);
     }
 
-    // Retry the job directly (active event will clear error state automatically)
-    await job.retry();
+    const [failedJobs, pendingJobs] = await Promise.all([
+      evaluationItemQueue.getJobs(['failed']),
+      evaluationItemQueue.getJobs(['waiting', 'delayed', 'active', 'prioritized'])
+    ]);
 
-    addLog.debug('Evaluation item retried successfully', {
+    const pendingJob = pendingJobs.find((job) => job.data?.evalItemId === itemId);
+    if (pendingJob) {
+      addLog.debug('Evaluation item retry skipped (job already pending)', {
+        itemId,
+        evalId: item.evalId,
+        teamId,
+        jobId: pendingJob.id
+      });
+      return;
+    }
+
+    const failedJob = failedJobs.find((job) => job.data?.evalItemId === itemId);
+    if (failedJob) {
+      await failedJob.retry();
+      addLog.debug('Evaluation item retried successfully (existing failed job)', {
+        itemId,
+        evalId: item.evalId,
+        teamId,
+        jobId: failedJob.id
+      });
+      return;
+    }
+
+    await addEvaluationItemJob({
+      evalId: item.evalId.toString(),
+      evalItemId: itemId
+    });
+
+    addLog.debug('Evaluation item retried successfully (new job queued)', {
       itemId,
       evalId: item.evalId,
       teamId
@@ -1068,47 +1066,79 @@ export class EvaluationTaskService {
   }
 
   static async retryFailedItems(evalId: string, teamId: string): Promise<number> {
-    await this.getEvaluation(evalId, teamId); // Validate evalId and teamId
+    const evaluation = await this.getEvaluation(evalId, teamId); // Validate evalId and teamId
 
-    // Get all failed jobs for this evaluation
-    const failedJobs = await evaluationItemQueue.getJobs(['failed']);
-    const evaluationFailedJobs = failedJobs.filter((job) => job.data.evalId === evalId);
+    const itemsToProcess = await MongoEvalItem.find({
+      evalId: evaluation._id,
+      status: EvaluationStatusEnum.error
+    }).lean();
 
-    if (evaluationFailedJobs.length === 0) {
+    if (itemsToProcess.length === 0) {
       addLog.warn('No failed jobs found to retry for evaluation', { evalId });
       return 0;
     }
 
-    let retriedItems = 0;
-    let failedRetries = 0;
+    const [failedJobs, pendingJobs] = await Promise.all([
+      evaluationItemQueue.getJobs(['failed']),
+      evaluationItemQueue.getJobs(['waiting', 'delayed', 'active', 'prioritized'])
+    ]);
 
-    // Process each failed job
-    for (const job of evaluationFailedJobs) {
-      try {
-        // Retry the job directly (active event will clear error state automatically)
-        await job.retry();
-        retriedItems++;
-      } catch (error) {
-        failedRetries++;
-        addLog.error('Failed to retry individual evaluation item job', {
-          jobId: job.id,
-          evalId,
-          evalItemId: job.data.evalItemId,
-          teamId,
-          error
-        });
+    const failedJobMap = new Map<string, (typeof failedJobs)[number]>();
+    failedJobs.forEach((job) => {
+      const evalItemId = job.data?.evalItemId;
+      if (evalItemId) {
+        failedJobMap.set(evalItemId, job);
       }
+    });
+
+    const pendingJobSet = new Set<string>();
+    pendingJobs.forEach((job) => {
+      const evalItemId = job.data?.evalItemId;
+      if (evalItemId) {
+        pendingJobSet.add(evalItemId);
+      }
+    });
+
+    let retriedJobs = 0;
+    let addedJobs = 0;
+    let skippedJobs = 0;
+
+    for (const item of itemsToProcess) {
+      const evalItemId = item._id.toString();
+
+      if (pendingJobSet.has(evalItemId)) {
+        skippedJobs += 1;
+        continue;
+      }
+
+      const failedJob = failedJobMap.get(evalItemId);
+      if (failedJob) {
+        await failedJob.retry();
+        retriedJobs += 1;
+        pendingJobSet.add(evalItemId);
+        continue;
+      }
+
+      await addEvaluationItemJob({
+        evalId,
+        evalItemId
+      });
+      addedJobs += 1;
+      pendingJobSet.add(evalItemId);
     }
+
+    const totalProcessed = retriedJobs + addedJobs;
 
     addLog.debug('All failed evaluation items retry completed', {
       evalId,
       teamId,
-      totalFailedJobs: evaluationFailedJobs.length,
-      retriedItems,
-      failedRetries
+      retriedJobs,
+      addedJobs,
+      skippedJobs,
+      totalProcessed
     });
 
-    return retriedItems;
+    return totalProcessed;
   }
 
   static async getEvaluationItemResult(
@@ -1136,10 +1166,6 @@ export class EvaluationTaskService {
 
     const total = items.length;
 
-    // Get real-time status for all items
-    const itemIds = items.map((item) => item._id.toString());
-    const statusMap = await getBatchEvaluationItemStatus(itemIds);
-
     if (format === 'json') {
       const results = items.map((item) => ({
         itemId: item._id,
@@ -1147,7 +1173,7 @@ export class EvaluationTaskService {
         expectedOutput: item.dataItem?.expectedOutput,
         actualOutput: item.targetOutput?.actualOutput,
         scores: item.evaluatorOutputs?.map((output) => output?.data?.score) || [],
-        status: statusMap.get(item._id.toString()) || EvaluationStatusEnum.completed,
+        status: item.status,
         targetOutput: item.targetOutput,
         evaluatorOutputs: item.evaluatorOutputs,
         errorMessage: item.errorMessage,
@@ -1205,8 +1231,6 @@ export class EvaluationTaskService {
           }
         });
 
-        const itemStatus = statusMap.get(item._id.toString()) || EvaluationStatusEnum.completed;
-
         const row = [
           item._id.toString(),
           `"${(item.dataItem?.userInput || '').replace(/"/g, '""')}"`,
@@ -1217,7 +1241,7 @@ export class EvaluationTaskService {
             const score = metricScoreMap.get(metricName);
             return score !== undefined ? score : '';
           }),
-          itemStatus || '',
+          item.status || '',
           `"${(item.errorMessage || '').replace(/"/g, '""')}"`
         ];
         csvRows.push(row.join(','));

@@ -9,7 +9,6 @@ import type {
   EvalTarget,
   EvaluatorSchema
 } from '@fastgpt/global/core/evaluation/type';
-import { EvaluationStatusEnum } from '@fastgpt/global/core/evaluation/constants';
 import { Types } from '@fastgpt/service/common/mongo';
 import { EvaluationErrEnum } from '@fastgpt/global/common/error/code/evaluation';
 import { EvalMetricTypeEnum } from '@fastgpt/global/core/evaluation/metric/constants';
@@ -21,6 +20,23 @@ vi.mock('@fastgpt/service/common/system/log');
 vi.mock('@fastgpt/service/core/evaluation/summary/util/weightCalculator');
 vi.mock('@fastgpt/service/core/evaluation/task/statusCalculator');
 vi.mock('@fastgpt/service/core/evaluation/summary/queue');
+
+// Mock BullMQ
+vi.mock('@fastgpt/service/common/bullmq', () => ({
+  getQueue: vi.fn(() => ({
+    add: vi.fn().mockResolvedValue({ id: 'test-job-id' }),
+    addBulk: vi.fn().mockResolvedValue([{ id: 'bulk-job-1' }, { id: 'bulk-job-2' }]),
+    getJob: vi.fn(),
+    getJobs: vi.fn().mockResolvedValue([])
+  })),
+  getWorker: vi.fn(() => ({
+    on: vi.fn()
+  })),
+  QueueNames: {
+    evalTask: 'evalTask',
+    evalTaskItem: 'evalTaskItem'
+  }
+}));
 
 describe('EvaluationTaskService Integration Tests', () => {
   let teamId: string;
@@ -148,24 +164,19 @@ describe('EvaluationTaskService Integration Tests', () => {
     const { createEvaluationUsage } = await import(
       '@fastgpt/service/support/wallet/usage/controller'
     );
-    const { getEvaluationTaskStatus, getEvaluationTaskStats } = await import(
+    const { getEvaluationTaskStats } = await import(
       '@fastgpt/service/core/evaluation/task/statusCalculator'
     );
     const { buildEvalDataConfig } = await import(
       '@fastgpt/service/core/evaluation/summary/util/weightCalculator'
     );
-    const {
-      removeEvaluationTaskJob,
-      removeEvaluationItemJobs,
-      addEvaluationTaskJob,
-      checkEvaluationTaskJobActive
-    } = await import('@fastgpt/service/core/evaluation/task/mq');
+    const { removeEvaluationTaskJob, removeEvaluationItemJobs, addEvaluationTaskJob } =
+      await import('@fastgpt/service/core/evaluation/task/mq');
     const { removeEvaluationSummaryJobs } = await import(
       '@fastgpt/service/core/evaluation/summary/queue'
     );
 
     (createEvaluationUsage as any).mockResolvedValue({ billId: new Types.ObjectId() });
-    (getEvaluationTaskStatus as any).mockResolvedValue(EvaluationStatusEnum.queuing);
     (getEvaluationTaskStats as any).mockResolvedValue({
       total: 2,
       completed: 0,
@@ -211,7 +222,6 @@ describe('EvaluationTaskService Integration Tests', () => {
       activeJobsCleaned: 0
     });
     (addEvaluationTaskJob as any).mockResolvedValue(undefined);
-    (checkEvaluationTaskJobActive as any).mockResolvedValue(false);
   });
 
   describe('基本CRUD操作', () => {
@@ -477,17 +487,11 @@ describe('EvaluationTaskService Integration Tests', () => {
         ]
       });
 
-      const { getBatchEvaluationItemStatus } = await import(
-        '@fastgpt/service/core/evaluation/task/statusCalculator'
-      );
-      (getBatchEvaluationItemStatus as any).mockResolvedValue(
-        new Map([['someId', EvaluationStatusEnum.completed]])
-      );
-
       const { results: buffer, total } = await EvaluationTaskService.exportEvaluationResults(
         evaluation._id.toString(),
         teamId,
-        'json'
+        'json',
+        'zh-CN'
       );
       const data = JSON.parse(buffer.toString());
 
@@ -530,22 +534,17 @@ describe('EvaluationTaskService Integration Tests', () => {
         ]
       });
 
-      const { getBatchEvaluationItemStatus } = await import(
-        '@fastgpt/service/core/evaluation/task/statusCalculator'
-      );
-      (getBatchEvaluationItemStatus as any).mockResolvedValue(
-        new Map([['someId', EvaluationStatusEnum.completed]])
-      );
-
       const { results: buffer, total } = await EvaluationTaskService.exportEvaluationResults(
         evaluation._id.toString(),
         teamId,
-        'csv'
+        'csv',
+        'en'
       );
       const csvContent = buffer.toString();
+      console.log('CSV Content:\n', csvContent);
 
       expect(total).toBeGreaterThanOrEqual(1);
-      expect(csvContent.includes('ItemId,UserInput,ExpectedOutput')).toBe(true);
+      expect(csvContent.includes('Item ID,Question,Expected Answer,Actual Answer')).toBe(true);
       expect(csvContent.includes('CSV Test userInput')).toBe(true);
     });
   });

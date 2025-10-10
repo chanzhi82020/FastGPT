@@ -774,6 +774,25 @@ const Detail = ({ taskId, currentTab }: Props) => {
                           evaluatorOutputs.map((output, outputIndex) => {
                             // 获取显示内容和颜色
                             const getDisplayInfo = () => {
+                              const isFinalStatus =
+                                item.status === EvaluationStatusEnum.completed ||
+                                item.status === EvaluationStatusEnum.error;
+                              const statusInfo = EvaluationStatusMap[item.status];
+                              const statusName = statusInfo ? t(statusInfo.name) : '-';
+                              const statusColor =
+                                item.status === EvaluationStatusEnum.evaluating
+                                  ? 'blue.500'
+                                  : item.status === EvaluationStatusEnum.error
+                                    ? 'red.500'
+                                    : 'myGray.600';
+
+                              if (!isFinalStatus) {
+                                return {
+                                  content: statusName,
+                                  color: statusColor
+                                };
+                              }
+
                               if (
                                 output.status === MetricResultStatusEnum.Success &&
                                 output.data?.score !== undefined
@@ -799,20 +818,9 @@ const Detail = ({ taskId, currentTab }: Props) => {
                                 };
                               }
 
-                              // 使用外层状态
-                              const statusInfo = EvaluationStatusMap[item.status];
-                              const statusName = statusInfo ? t(statusInfo.name) : '-';
-
-                              let color = 'myGray.600'; // 默认颜色（排队中）
-                              if (item.status === EvaluationStatusEnum.evaluating) {
-                                color = 'blue.500'; // 评测中为蓝色
-                              } else if (item.status === EvaluationStatusEnum.error) {
-                                color = 'red.500'; // 异常为红色
-                              }
-
                               return {
                                 content: statusName,
-                                color: color
+                                color: statusColor
                               };
                             };
 
