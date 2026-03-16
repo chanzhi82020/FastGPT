@@ -129,12 +129,12 @@ importers:
 
   packages/service:
     dependencies:
-      '@anyany/sandbox_provider':
-        specifier: ^0.1.1
-        version: 0.1.1(typescript@5.9.3)
       '@apidevtools/json-schema-ref-parser':
         specifier: ^11.7.2
         version: 11.7.2
+      '@fastgpt-sdk/sandbox-adapter':
+        specifier: ^0.0.16
+        version: 0.0.16
       '@fastgpt-sdk/storage':
         specifier: 'catalog:'
         version: 0.6.15(@opentelemetry/api@1.9.0)(@types/node@24.0.13)(jiti@2.6.0)(lightningcss@1.30.1)(proxy-agent@6.5.0)(sass@1.85.1)(terser@5.39.0)(tsx@4.20.6)(yaml@2.8.1)
@@ -956,12 +956,6 @@ packages:
   '@ampproject/remapping@2.3.0':
     resolution: {integrity: sha512-30iZtAPgz+LTIYoeivqYo853f02jBYSd5uGnGpkFV0M3xOt9aN73erkgYAmZU43x4VfqcnLxW9Kpg3R5LC4YYw==}
     engines: {node: '>=6.0.0'}
-
-  '@anyany/sandbox_provider@0.1.1':
-    resolution: {integrity: sha512-zX+Bl+xVv7aSw8wl9x5XTBtNhk8PCRRVY+iFkymU9FYLjzP3d2DhC0K5CXc5l5wpsjmVEdTwgtD7woPlSncV/g==}
-    engines: {node: '>=16.0.0'}
-    peerDependencies:
-      typescript: ^5.0.0
 
   '@apidevtools/json-schema-ref-parser@11.7.2':
     resolution: {integrity: sha512-4gY54eEGEstClvEkGnwVkTkrx0sqwemEFG5OSRRn3tD91XH0+Q8XIkYIfo7IwEWPpJZwILb9GUXeShtplRc/eA==}
@@ -2442,6 +2436,10 @@ packages:
 
   '@fastgpt-sdk/plugin@0.3.8':
     resolution: {integrity: sha512-GjKrXMHxeF5UMkYGXawrUpzZjVRw3DICNYODeYwsUVOy+/ltu5zuwsqLkuuGQ7Arp/SBCmYRjG/MHmeNp4xxfw==}
+
+  '@fastgpt-sdk/sandbox-adapter@0.0.16':
+    resolution: {integrity: sha512-abOARsloS7uokIgnM1wosBYgo1nkzPhuUu9LGymU1qDXW1yKWTl8XysEHkRn9PORhz2zK60s/fcTJmTTHEjLWA==}
+    engines: {node: '>=18'}
 
   '@fastgpt-sdk/storage@0.6.15':
     resolution: {integrity: sha512-oPbm6EtXQ3ysad/OebF2ovwbIax6PeCvYqA3cGAVEHEJMBU3633ktl1ZaIIkmyjWJLsABZpMf6m7lPBMyISGrA==}
@@ -11249,11 +11247,6 @@ snapshots:
       '@jridgewell/gen-mapping': 0.3.13
       '@jridgewell/trace-mapping': 0.3.31
 
-  '@anyany/sandbox_provider@0.1.1(typescript@5.9.3)':
-    dependencies:
-      '@alibaba-group/opensandbox': 0.1.4
-      typescript: 5.9.3
-
   '@apidevtools/json-schema-ref-parser@11.7.2':
     dependencies:
       '@jsdevtools/ono': 7.1.3
@@ -13183,6 +13176,10 @@ snapshots:
     dependencies:
       '@fortaine/fetch-event-source': 3.0.6
       zod: 4.1.12
+
+  '@fastgpt-sdk/sandbox-adapter@0.0.16':
+    dependencies:
+      '@alibaba-group/opensandbox': 0.1.4
 
   '@fastgpt-sdk/storage@0.6.15(@opentelemetry/api@1.9.0)(@types/node@20.17.24)(jiti@2.6.0)(lightningcss@1.30.1)(sass@1.85.1)(terser@5.39.0)(tsx@4.20.6)(yaml@2.8.1)':
     dependencies:
@@ -20780,6 +20777,7 @@ snapshots:
       zod: 4.1.12
     transitivePeerDependencies:
       - encoding
+
   openapi-fetch@0.14.1:
     dependencies:
       openapi-typescript-helpers: 0.0.15
